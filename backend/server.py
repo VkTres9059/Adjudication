@@ -28,6 +28,35 @@ from cpt_codes import (
     search_cpt_codes,
 )
 
+# Import Dental CDT codes
+from dental_codes import (
+    CDT_CODES_DATABASE,
+    DENTAL_BENEFIT_CLASSES,
+    get_dental_code,
+    search_dental_codes,
+    calculate_dental_allowed,
+)
+
+# Import Vision codes
+from vision_codes import (
+    VISION_CODES_DATABASE,
+    VISION_BENEFIT_CLASSES,
+    get_vision_code,
+    search_vision_codes,
+    calculate_vision_allowed,
+)
+
+# Import Hearing codes
+from hearing_codes import (
+    HEARING_CODES_DATABASE,
+    HEARING_BENEFIT_CLASSES,
+    get_hearing_code,
+    search_hearing_codes,
+    calculate_hearing_allowed,
+)
+import json
+import io
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -37,7 +66,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
-JWT_SECRET = os.environ.get('JWT_SECRET', 'javelina-claims-secret-key-2024')
+JWT_SECRET = os.environ.get('JWT_SECRET', 'fletchflow-claims-secret-key-2024')
 JWT_ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -419,13 +448,62 @@ async def detect_duplicates(claim_data: dict) -> List[Dict]:
 
 # ==================== ADJUDICATION ENGINE ====================
 
+def lookup_code_for_claim_type(cpt_code, claim_type):
+    """Look up a procedure code across all coverage databases based on claim type."""
+    if claim_type == "dental":
+        data = get_dental_code(cpt_code)
+        if data:
+            return {"source": "dental", **data}
+    elif claim_type == "vision":
+        data = get_vision_code(cpt_code)
+        if data:
+            return {"source": "vision", **data}
+    elif claim_type == "hearing":
+        data = get_hearing_code(cpt_code)
+        if data:
+            return {"source": "hearing", **data}
+    # Default / medical: use CPT/Medicare codes
+    data = get_cpt_code(cpt_code)
+    if data:
+        return {"source": "medical", **data}
+    # Try all databases as fallback
+    for fn, src in [(get_dental_code, "dental"), (get_vision_code, "vision"), (get_hearing_code, "hearing")]:
+        data = fn(cpt_code)
+        if data:
+            return {"source": src, **data}
+    return None
+
+
+def calculate_line_allowed_for_type(code, code_data, claim_type, locality_code, reimbursement_method, rate_multiplier, units):
+    """Calculate allowed amount for a service line based on claim type."""
+    if code_data["source"] == "dental":
+        result = calculate_dental_allowed(code)
+        if result:
+            return result["fee"] * units, result["plan_pays"] * units, result["member_pays"] * units, f"Dental CDT fee: ${result['fee']:.2f} ({result['benefit_class']})"
+    elif code_data["source"] == "vision":
+        result = calculate_vision_allowed(code)
+        if result:
+            return result["fee"] * units, result["plan_pays"] * units, result["member_pays"] * units, f"Vision fee: ${result['fee']:.2f} ({result['benefit_class']})"
+    elif code_data["source"] == "hearing":
+        result = calculate_hearing_allowed(code)
+        if result:
+            return result["fee"] * units, result["plan_pays"] * units, result["member_pays"] * units, f"Hearing fee: ${result['fee']:.2f} ({result['benefit_class']})"
+    # Medical / Medicare fee schedule
+    medicare_rate = calculate_medicare_rate(code, locality_code, use_facility=True)
+    if medicare_rate:
+        allowed = medicare_rate * rate_multiplier * units
+        return allowed, None, None, f"Medicare Rate: ${medicare_rate:.2f}, Method: {reimbursement_method} ({rate_multiplier*100:.0f}%)"
+    return None, None, None, None
+
+
 async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code: str = "00000") -> dict:
-    """Apply plan rules to adjudicate a claim using Medicare fee schedule"""
+    """Apply plan rules to adjudicate a claim - supports Medical, Dental, Vision, Hearing."""
     
     adjudication_notes = []
     total_allowed = 0
     total_paid = 0
     member_responsibility = 0
+    claim_type = claim.get("claim_type", "medical")
     
     # Check member eligibility
     claim_date = datetime.fromisoformat(claim["service_date_from"])
@@ -450,54 +528,65 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
             "adjudication_notes": ["DENIED: Service date after coverage termination"]
         }
     
+    # Check if plan type matches claim type
+    plan_type = plan.get("plan_type", "medical")
+    if plan_type != claim_type:
+        adjudication_notes.append(f"WARNING: Claim type '{claim_type}' does not match plan type '{plan_type}'. Adjudicating with available plan rules.")
+    
+    # Check prior authorization if required at claim level
+    prior_auth = None
+    if claim.get("prior_auth_number"):
+        prior_auth = await db.prior_authorizations.find_one(
+            {"auth_number": claim["prior_auth_number"], "status": "approved"},
+            {"_id": 0}
+        )
+    
     # Get member accumulators
     accumulators = await db.accumulators.find_one(
-        {"member_id": claim["member_id"], "plan_year": str(claim_date.year)},
+        {"member_id": claim["member_id"], "plan_year": str(claim_date.year), "claim_type": claim_type},
         {"_id": 0}
     ) or {
         "deductible_met": 0,
-        "oop_met": 0
+        "oop_met": 0,
+        "annual_max_used": 0,
     }
     
-    deductible = plan["deductible_individual"]
-    oop_max = plan["oop_max_individual"]
+    deductible = plan.get("deductible_individual", 0)
+    oop_max = plan.get("oop_max_individual", 999999)
+    annual_max = plan.get("annual_max", 999999)  # Relevant for dental/vision
     
     # Get plan reimbursement method and multiplier
     reimbursement_method = plan.get("reimbursement_method", "fee_schedule")
-    # Default multipliers based on reimbursement method
     method_multipliers = {
         "fee_schedule": 1.0,
-        "percent_medicare": 1.2,  # 120% of Medicare
-        "percent_billed": 0.8,    # 80% of billed
-        "rbp": 1.4,               # 140% of Medicare for RBP
-        "contracted": 1.0         # Use contracted/Medicare rates
+        "percent_medicare": 1.2,
+        "percent_billed": 0.8,
+        "rbp": 1.4,
+        "contracted": 1.0
     }
     rate_multiplier = method_multipliers.get(reimbursement_method, 1.0)
     
     # Process each service line
     processed_lines = []
     for line in claim["service_lines"]:
-        cpt_code = line["cpt_code"]
+        proc_code = line["cpt_code"]
         billed = line["billed_amount"]
         units = line.get("units", 1)
         
-        # Look up CPT code in Medicare fee schedule
-        cpt_data = get_cpt_code(cpt_code)
+        # Look up code in appropriate database
+        code_data = lookup_code_for_claim_type(proc_code, claim_type)
         
-        # Find matching benefit category
+        # Find matching benefit category from plan
         benefit = None
         for b in plan.get("benefits", []):
             if b.get("code_range"):
-                # Code range matching
-                if cpt_code.startswith(b["code_range"][:3]):
+                if proc_code.startswith(b["code_range"][:3]):
                     benefit = b
                     break
             elif b.get("service_category"):
-                # Category matching based on CPT data
-                if cpt_data:
-                    cpt_category = cpt_data.get("category", "")
+                if code_data:
+                    code_category = code_data.get("category", "")
                     service_cat = b.get("service_category", "").lower()
-                    # Map CPT categories to service categories
                     category_map = {
                         "E/M": ["office visit", "preventive", "hospital", "emergency", "evaluation"],
                         "Surgery": ["surgery", "procedure"],
@@ -505,10 +594,31 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
                         "Pathology/Lab": ["lab", "pathology", "diagnostic"],
                         "Medicine": ["physical therapy", "immunization", "vaccine", "cardio", "pulmonary"],
                         "Anesthesia": ["anesthesia"],
-                        "HCPCS": ["drug", "injection", "dme", "equipment"]
+                        "HCPCS": ["drug", "injection", "dme", "equipment"],
+                        # Dental
+                        "Diagnostic": ["diagnostic", "preventive"],
+                        "Radiograph": ["diagnostic", "imaging", "x-ray"],
+                        "Preventive": ["preventive"],
+                        "Restorative": ["basic", "restorative"],
+                        "Crown": ["major", "crown"],
+                        "Endodontics": ["major", "endodontic"],
+                        "Periodontics": ["basic", "periodontic"],
+                        "Prosthodontics": ["major", "prosthodontic"],
+                        "Oral Surgery": ["basic", "surgery"],
+                        "Orthodontics": ["orthodontic"],
+                        # Vision
+                        "Eye Exam": ["exam", "office visit", "evaluation"],
+                        "Lenses": ["materials", "lens"],
+                        "Frames": ["materials", "frame"],
+                        "Contact Lens": ["contact lens", "materials"],
+                        # Hearing
+                        "Audiometric Testing": ["diagnostic", "testing"],
+                        "Hearing Aid Service": ["hearing aid", "service"],
+                        "Hearing Aid Device": ["hearing aid", "device"],
+                        "Cochlear Implant": ["cochlear", "implant"],
                     }
-                    if cpt_category in category_map:
-                        for keyword in category_map[cpt_category]:
+                    if code_category in category_map:
+                        for keyword in category_map[code_category]:
                             if keyword in service_cat:
                                 benefit = b
                                 break
@@ -522,27 +632,21 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         if not benefit.get("covered", True):
             processed_lines.append({
                 **line,
-                "allowed": 0,
-                "paid": 0,
-                "member_resp": billed,
-                "denial_reason": "Service not covered under plan",
-                "medicare_rate": None
+                "allowed": 0, "paid": 0, "member_resp": billed,
+                "denial_reason": "Service not covered under plan", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - NOT COVERED under benefit plan")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - NOT COVERED under benefit plan")
             member_responsibility += billed
             continue
         
         # Check exclusions
-        if cpt_code in plan.get("exclusions", []):
+        if proc_code in plan.get("exclusions", []):
             processed_lines.append({
                 **line,
-                "allowed": 0,
-                "paid": 0,
-                "member_resp": billed,
-                "denial_reason": "Service excluded from coverage",
-                "medicare_rate": None
+                "allowed": 0, "paid": 0, "member_resp": billed,
+                "denial_reason": "Service excluded from coverage", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - EXCLUDED from coverage")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - EXCLUDED from coverage")
             member_responsibility += billed
             continue
         
@@ -550,71 +654,72 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         if benefit.get("prior_auth_required") and not claim.get("prior_auth_number"):
             processed_lines.append({
                 **line,
-                "allowed": 0,
-                "paid": 0,
-                "member_resp": billed,
-                "denial_reason": "Prior authorization required",
-                "medicare_rate": None
+                "allowed": 0, "paid": 0, "member_resp": billed,
+                "denial_reason": "Prior authorization required", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - Prior auth REQUIRED but not provided")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - Prior auth REQUIRED but not provided")
             member_responsibility += billed
             continue
         
-        # Calculate allowed amount using Medicare fee schedule
+        # Calculate allowed amount based on claim type and code source
+        allowed = None
+        type_plan_pays = None
+        type_member_pays = None
+        rate_note = None
         medicare_rate = None
-        if cpt_data:
-            # Use Medicare rate with GPCI adjustment
-            medicare_rate = calculate_medicare_rate(cpt_code, locality_code, use_facility=True)
-            
-            if medicare_rate:
-                # Apply plan's reimbursement method multiplier
-                allowed = medicare_rate * rate_multiplier * units
-                adjudication_notes.append(
-                    f"Line {line['line_number']}: {cpt_code} ({cpt_data.get('description', 'Unknown')[:50]}...) - "
-                    f"Medicare Rate: ${medicare_rate:.2f}, Method: {reimbursement_method} ({rate_multiplier*100:.0f}%)"
-                )
-            else:
-                # Fallback: use percentage of billed
-                allowed = billed * 0.8
-                adjudication_notes.append(
-                    f"Line {line['line_number']}: {cpt_code} - No Medicare rate, using 80% of billed"
-                )
-        else:
-            # Unknown CPT code - use percentage of billed
-            allowed = billed * 0.8
-            adjudication_notes.append(
-                f"Line {line['line_number']}: {cpt_code} - UNKNOWN CPT code, using 80% of billed"
+        
+        if code_data:
+            allowed, type_plan_pays, type_member_pays, rate_note = calculate_line_allowed_for_type(
+                proc_code, code_data, claim_type, locality_code, reimbursement_method, rate_multiplier, units
             )
+            if code_data["source"] == "medical":
+                medicare_rate = calculate_medicare_rate(proc_code, locality_code, use_facility=True)
+        
+        if allowed is None:
+            allowed = billed * 0.8
+            rate_note = f"UNKNOWN code, using 80% of billed"
         
         # Cap allowed at billed amount
         allowed = min(allowed, billed)
+        adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - {rate_note}")
         
-        # Apply deductible
-        line_deductible = 0
-        if benefit.get("deductible_applies", True):
-            remaining_deductible = max(0, deductible - accumulators["deductible_met"])
-            line_deductible = min(allowed, remaining_deductible)
-            accumulators["deductible_met"] += line_deductible
-        
-        # Calculate coinsurance
-        after_deductible = allowed - line_deductible
-        copay = benefit.get("copay", 0)
-        coinsurance_pct = benefit.get("coinsurance", 0.2)
-        coinsurance_amount = after_deductible * coinsurance_pct
-        
-        # Calculate paid amount
-        paid = after_deductible - coinsurance_amount - copay
-        
-        # Check OOP max
-        member_resp_this_line = line_deductible + coinsurance_amount + copay
-        remaining_oop = max(0, oop_max - accumulators["oop_met"])
-        if member_resp_this_line > remaining_oop:
-            # OOP max reached - plan pays more
-            paid += (member_resp_this_line - remaining_oop)
-            member_resp_this_line = remaining_oop
-            adjudication_notes.append(f"Line {line['line_number']}: OOP MAX reached - additional plan payment applied")
-        
-        accumulators["oop_met"] += member_resp_this_line
+        # For dental/vision/hearing with their own benefit class pricing
+        if type_plan_pays is not None and type_member_pays is not None:
+            paid = type_plan_pays
+            member_resp_this_line = type_member_pays
+            
+            # Still apply annual max for dental
+            if claim_type == "dental" and annual_max < 999999:
+                remaining_annual = max(0, annual_max - accumulators.get("annual_max_used", 0))
+                if paid > remaining_annual:
+                    excess = paid - remaining_annual
+                    paid = remaining_annual
+                    member_resp_this_line += excess
+                    adjudication_notes.append(f"Line {line['line_number']}: Annual max reached - excess ${excess:.2f} to member")
+                accumulators["annual_max_used"] = accumulators.get("annual_max_used", 0) + min(type_plan_pays, remaining_annual)
+        else:
+            # Standard medical adjudication with deductible/coinsurance/OOP
+            line_deductible = 0
+            if benefit.get("deductible_applies", True):
+                remaining_deductible = max(0, deductible - accumulators["deductible_met"])
+                line_deductible = min(allowed, remaining_deductible)
+                accumulators["deductible_met"] += line_deductible
+            
+            after_deductible = allowed - line_deductible
+            copay = benefit.get("copay", 0)
+            coinsurance_pct = benefit.get("coinsurance", 0.2)
+            coinsurance_amount = after_deductible * coinsurance_pct
+            
+            paid = after_deductible - coinsurance_amount - copay
+            member_resp_this_line = line_deductible + coinsurance_amount + copay
+            
+            remaining_oop = max(0, oop_max - accumulators["oop_met"])
+            if member_resp_this_line > remaining_oop:
+                paid += (member_resp_this_line - remaining_oop)
+                member_resp_this_line = remaining_oop
+                adjudication_notes.append(f"Line {line['line_number']}: OOP MAX reached - additional plan payment applied")
+            
+            accumulators["oop_met"] += member_resp_this_line
         
         total_allowed += allowed
         total_paid += max(0, paid)
@@ -625,17 +730,17 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
             "allowed": round(allowed, 2),
             "paid": round(max(0, paid), 2),
             "member_resp": round(member_resp_this_line, 2),
-            "deductible_applied": round(line_deductible, 2),
-            "coinsurance_applied": round(coinsurance_amount, 2),
+            "deductible_applied": round(accumulators.get("deductible_met", 0), 2),
             "medicare_rate": medicare_rate,
-            "cpt_description": cpt_data.get("description", "Unknown") if cpt_data else "Unknown",
-            "work_rvu": cpt_data.get("work_rvu") if cpt_data else None,
-            "total_rvu": cpt_data.get("total_rvu") if cpt_data else None
+            "cpt_description": code_data.get("description", "Unknown") if code_data else "Unknown",
+            "work_rvu": code_data.get("work_rvu") if code_data else None,
+            "total_rvu": code_data.get("total_rvu") if code_data else None,
+            "coverage_type": code_data.get("source", claim_type) if code_data else claim_type
         })
     
     # Update accumulators
     await db.accumulators.update_one(
-        {"member_id": claim["member_id"], "plan_year": str(claim_date.year)},
+        {"member_id": claim["member_id"], "plan_year": str(claim_date.year), "claim_type": claim_type},
         {"$set": accumulators},
         upsert=True
     )
@@ -1180,120 +1285,361 @@ async def get_recent_activity(limit: int = 10, user: dict = Depends(get_current_
 
 @api_router.post("/edi/upload-834")
 async def upload_edi_834(file: UploadFile = File(...), user: dict = Depends(require_roles([UserRole.ADMIN]))):
-    """Process EDI 834 enrollment file"""
+    """Process EDI 834 enrollment file - supports real X12 and pipe-delimited format."""
     content = await file.read()
     content_str = content.decode('utf-8')
     
-    # Simplified 834 parsing - in production would use proper X12 parser
     members_created = 0
+    members_updated = 0
     errors = []
     
-    # Parse simple format: MemberID|FirstName|LastName|DOB|Gender|GroupID|PlanID|EffDate
-    for line in content_str.strip().split('\n'):
-        if not line or line.startswith('#'):
-            continue
-        try:
-            parts = line.split('|')
-            if len(parts) >= 8:
-                member_data = MemberCreate(
-                    member_id=parts[0],
-                    first_name=parts[1],
-                    last_name=parts[2],
-                    dob=parts[3],
-                    gender=parts[4],
-                    group_id=parts[5],
-                    plan_id=parts[6],
-                    effective_date=parts[7],
-                    relationship="subscriber"
-                )
-                
-                # Check if exists
-                existing = await db.members.find_one({"member_id": member_data.member_id})
-                if not existing:
-                    member_doc = {
-                        "id": str(uuid.uuid4()),
-                        **member_data.model_dump(),
-                        "status": "active",
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }
-                    await db.members.insert_one(member_doc)
-                    members_created += 1
-        except Exception as e:
-            errors.append(f"Line error: {str(e)}")
+    is_x12 = content_str.strip().startswith('ISA')
     
-    return {"members_created": members_created, "errors": errors}
+    if is_x12:
+        # Real X12 834 Parsing
+        segment_terminator = '~'
+        element_separator = '*'
+        segments = [s.strip() for s in content_str.split(segment_terminator) if s.strip()]
+        
+        current_member = {}
+        in_member_loop = False
+        
+        for seg in segments:
+            elements = seg.split(element_separator)
+            seg_id = elements[0]
+            
+            if seg_id == 'INS':
+                # Insurance segment - start of new member
+                if current_member.get("member_id"):
+                    try:
+                        await _save_834_member(current_member)
+                        members_created += 1
+                    except Exception as e:
+                        errors.append(f"Member {current_member.get('member_id', '?')}: {str(e)}")
+                current_member = {"relationship": "subscriber" if len(elements) > 1 and elements[1] == 'Y' else "dependent"}
+                in_member_loop = True
+            elif seg_id == 'REF' and in_member_loop:
+                # Reference - member ID
+                if len(elements) > 2 and elements[1] == '0F':
+                    current_member["member_id"] = elements[2]
+                elif len(elements) > 2 and elements[1] == '1L':
+                    current_member["group_id"] = elements[2]
+            elif seg_id == 'NM1' and in_member_loop:
+                # Name segment
+                if len(elements) > 3 and elements[1] == 'IL':
+                    current_member["last_name"] = elements[3] if len(elements) > 3 else ""
+                    current_member["first_name"] = elements[4] if len(elements) > 4 else ""
+            elif seg_id == 'DMG' and in_member_loop:
+                # Demographic segment
+                if len(elements) > 2:
+                    current_member["dob"] = _parse_x12_date(elements[2]) if len(elements) > 2 else ""
+                    current_member["gender"] = elements[3] if len(elements) > 3 else "U"
+            elif seg_id == 'DTP' and in_member_loop:
+                # Date segment
+                if len(elements) > 3:
+                    if elements[1] == '348':
+                        current_member["effective_date"] = _parse_x12_date(elements[3])
+                    elif elements[1] == '349':
+                        current_member["termination_date"] = _parse_x12_date(elements[3])
+            elif seg_id == 'HD' and in_member_loop:
+                # Health coverage segment
+                if len(elements) > 3:
+                    plan_code = elements[3] if len(elements) > 3 else ""
+                    current_member["plan_id"] = plan_code
+        
+        # Save last member
+        if current_member.get("member_id"):
+            try:
+                await _save_834_member(current_member)
+                members_created += 1
+            except Exception as e:
+                errors.append(f"Member {current_member.get('member_id', '?')}: {str(e)}")
+    else:
+        # Pipe-delimited format: MemberID|FirstName|LastName|DOB|Gender|GroupID|PlanID|EffDate
+        for line in content_str.strip().split('\n'):
+            if not line or line.startswith('#'):
+                continue
+            try:
+                parts = line.split('|')
+                if len(parts) >= 8:
+                    member_data = MemberCreate(
+                        member_id=parts[0], first_name=parts[1], last_name=parts[2],
+                        dob=parts[3], gender=parts[4], group_id=parts[5],
+                        plan_id=parts[6], effective_date=parts[7], relationship="subscriber"
+                    )
+                    existing = await db.members.find_one({"member_id": member_data.member_id})
+                    if not existing:
+                        member_doc = {
+                            "id": str(uuid.uuid4()),
+                            **member_data.model_dump(),
+                            "status": "active",
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.members.insert_one(member_doc)
+                        members_created += 1
+                    else:
+                        members_updated += 1
+            except Exception as e:
+                errors.append(f"Line error: {str(e)}")
+    
+    return {"members_created": members_created, "members_updated": members_updated, "errors": errors}
+
+
+def _parse_x12_date(date_str):
+    """Parse X12 date format CCYYMMDD to ISO date string."""
+    if len(date_str) == 8:
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    return date_str
+
+
+async def _save_834_member(member_data):
+    """Save a member parsed from 834."""
+    member_id = member_data.get("member_id", "")
+    if not member_id:
+        raise ValueError("Missing member_id")
+    existing = await db.members.find_one({"member_id": member_id})
+    doc = {
+        "id": existing["id"] if existing else str(uuid.uuid4()),
+        "member_id": member_id,
+        "first_name": member_data.get("first_name", ""),
+        "last_name": member_data.get("last_name", ""),
+        "dob": member_data.get("dob", ""),
+        "gender": member_data.get("gender", "U"),
+        "group_id": member_data.get("group_id", ""),
+        "plan_id": member_data.get("plan_id", ""),
+        "effective_date": member_data.get("effective_date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        "termination_date": member_data.get("termination_date"),
+        "relationship": member_data.get("relationship", "subscriber"),
+        "status": "active",
+        "created_at": existing["created_at"] if existing else datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    if existing:
+        await db.members.replace_one({"member_id": member_id}, doc)
+    else:
+        await db.members.insert_one(doc)
+
 
 @api_router.post("/edi/upload-837")
 async def upload_edi_837(file: UploadFile = File(...), user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
-    """Process EDI 837 claims file"""
+    """Process EDI 837 claims file - supports real X12 and pipe-delimited format."""
     content = await file.read()
     content_str = content.decode('utf-8')
     
     claims_created = 0
     errors = []
     
-    # Simplified 837 parsing
-    # Format: MemberID|ProviderNPI|ProviderName|ClaimType|DateFrom|DateTo|TotalBilled|DiagCodes|CPT1:Units1:Amount1,CPT2:Units2:Amount2
-    for line in content_str.strip().split('\n'):
-        if not line or line.startswith('#'):
-            continue
-        try:
-            parts = line.split('|')
-            if len(parts) >= 9:
-                # Parse service lines
-                service_lines = []
-                for i, svc in enumerate(parts[8].split(',')):
-                    svc_parts = svc.split(':')
-                    if len(svc_parts) >= 3:
-                        service_lines.append(ServiceLine(
-                            line_number=i + 1,
-                            cpt_code=svc_parts[0],
-                            units=int(svc_parts[1]),
-                            billed_amount=float(svc_parts[2]),
-                            service_date=parts[4]
-                        ))
+    is_x12 = content_str.strip().startswith('ISA')
+    
+    if is_x12:
+        # Real X12 837 Parsing
+        segment_terminator = '~'
+        element_separator = '*'
+        segments = [s.strip() for s in content_str.split(segment_terminator) if s.strip()]
+        
+        current_claim = {}
+        current_service_lines = []
+        current_diag_codes = []
+        in_claim = False
+        line_counter = 0
+        
+        for seg in segments:
+            elements = seg.split(element_separator)
+            seg_id = elements[0]
+            
+            if seg_id == 'CLM':
+                # Claim segment - save previous claim if exists
+                if in_claim and current_claim.get("member_id"):
+                    try:
+                        await _save_837_claim(current_claim, current_service_lines, current_diag_codes, user)
+                        claims_created += 1
+                    except Exception as e:
+                        errors.append(f"Claim error: {str(e)}")
                 
-                claim_data = ClaimCreate(
-                    member_id=parts[0],
-                    provider_npi=parts[1],
-                    provider_name=parts[2],
-                    claim_type=ClaimType(parts[3]),
-                    service_date_from=parts[4],
-                    service_date_to=parts[5],
-                    total_billed=float(parts[6]),
-                    diagnosis_codes=parts[7].split(','),
-                    service_lines=service_lines,
-                    source="edi_837"
-                )
+                current_claim = {}
+                current_service_lines = []
+                current_diag_codes = []
+                line_counter = 0
+                in_claim = True
                 
-                # Create claim using existing endpoint logic
-                await create_claim(claim_data, user)
+                if len(elements) > 2:
+                    current_claim["patient_control"] = elements[1]
+                    current_claim["total_billed"] = float(elements[2]) if len(elements) > 2 else 0
+                if len(elements) > 5:
+                    pos = elements[5].split(':') if ':' in elements[5] else [elements[5]]
+                    current_claim["place_of_service"] = pos[0]
+            elif seg_id == 'NM1' and in_claim:
+                if len(elements) > 3:
+                    if elements[1] == 'IL':
+                        current_claim["member_last_name"] = elements[3] if len(elements) > 3 else ""
+                        current_claim["member_first_name"] = elements[4] if len(elements) > 4 else ""
+                        if len(elements) > 9:
+                            current_claim["member_id"] = elements[9]
+                    elif elements[1] == '82':
+                        current_claim["provider_name"] = f"{elements[4]} {elements[3]}" if len(elements) > 4 else elements[3]
+                        if len(elements) > 9:
+                            current_claim["provider_npi"] = elements[9]
+            elif seg_id == 'HI' and in_claim:
+                # Health info - diagnosis codes
+                for i in range(1, len(elements)):
+                    parts = elements[i].split(':')
+                    if len(parts) >= 2:
+                        current_diag_codes.append(parts[1])
+            elif seg_id == 'SV1' and in_claim:
+                # Service line
+                line_counter += 1
+                proc_parts = elements[1].split(':') if len(elements) > 1 else ["", ""]
+                proc_code = proc_parts[1] if len(proc_parts) > 1 else proc_parts[0]
+                modifier = proc_parts[2] if len(proc_parts) > 2 else ""
+                
+                svc_line = {
+                    "line_number": line_counter,
+                    "cpt_code": proc_code,
+                    "modifier": modifier,
+                    "billed_amount": float(elements[2]) if len(elements) > 2 else 0,
+                    "units": int(float(elements[4])) if len(elements) > 4 else 1,
+                    "service_date": current_claim.get("service_date_from", ""),
+                    "place_of_service": elements[5] if len(elements) > 5 else "11",
+                }
+                current_service_lines.append(svc_line)
+            elif seg_id == 'DTP' and in_claim:
+                if len(elements) > 3:
+                    if elements[1] == '472':
+                        date_val = _parse_x12_date(elements[3].split('-')[0] if '-' in elements[3] else elements[3])
+                        current_claim["service_date_from"] = date_val
+                        current_claim["service_date_to"] = date_val
+        
+        # Save last claim
+        if in_claim and current_claim.get("member_id"):
+            try:
+                await _save_837_claim(current_claim, current_service_lines, current_diag_codes, user)
                 claims_created += 1
-        except Exception as e:
-            errors.append(f"Line error: {str(e)}")
+            except Exception as e:
+                errors.append(f"Claim error: {str(e)}")
+    else:
+        # Pipe-delimited format
+        for line in content_str.strip().split('\n'):
+            if not line or line.startswith('#'):
+                continue
+            try:
+                parts = line.split('|')
+                if len(parts) >= 9:
+                    service_lines = []
+                    for i, svc in enumerate(parts[8].split(',')):
+                        svc_parts = svc.split(':')
+                        if len(svc_parts) >= 3:
+                            service_lines.append(ServiceLine(
+                                line_number=i + 1,
+                                cpt_code=svc_parts[0],
+                                units=int(svc_parts[1]),
+                                billed_amount=float(svc_parts[2]),
+                                service_date=parts[4]
+                            ))
+                    
+                    claim_data = ClaimCreate(
+                        member_id=parts[0], provider_npi=parts[1], provider_name=parts[2],
+                        claim_type=ClaimType(parts[3]), service_date_from=parts[4],
+                        service_date_to=parts[5], total_billed=float(parts[6]),
+                        diagnosis_codes=parts[7].split(','), service_lines=service_lines,
+                        source="edi_837"
+                    )
+                    await create_claim(claim_data, user)
+                    claims_created += 1
+            except Exception as e:
+                errors.append(f"Line error: {str(e)}")
     
     return {"claims_created": claims_created, "errors": errors}
+
+
+async def _save_837_claim(claim_data, service_lines, diag_codes, user):
+    """Save a claim parsed from X12 837."""
+    svc_lines = []
+    for sl in service_lines:
+        svc_lines.append(ServiceLine(
+            line_number=sl["line_number"],
+            cpt_code=sl["cpt_code"],
+            modifier=sl.get("modifier", ""),
+            units=sl.get("units", 1),
+            billed_amount=sl.get("billed_amount", 0),
+            service_date=claim_data.get("service_date_from", ""),
+            place_of_service=sl.get("place_of_service", "11")
+        ))
+    
+    total_billed = claim_data.get("total_billed", sum(sl.get("billed_amount", 0) for sl in service_lines))
+    
+    cd = ClaimCreate(
+        member_id=claim_data.get("member_id", ""),
+        provider_npi=claim_data.get("provider_npi", ""),
+        provider_name=claim_data.get("provider_name", "Unknown Provider"),
+        claim_type=ClaimType.MEDICAL,
+        service_date_from=claim_data.get("service_date_from", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        service_date_to=claim_data.get("service_date_to", claim_data.get("service_date_from", datetime.now(timezone.utc).strftime("%Y-%m-%d"))),
+        total_billed=total_billed,
+        diagnosis_codes=diag_codes or ["Z00.00"],
+        service_lines=svc_lines,
+        source="edi_837"
+    )
+    await create_claim(cd, user)
+
 
 @api_router.get("/edi/generate-835")
 async def generate_edi_835(
     date_from: str,
     date_to: str,
+    format: str = Query(default="x12", description="Output format: x12 or pipe"),
     user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))
 ):
-    """Generate EDI 835 payment file"""
+    """Generate EDI 835 payment/remittance file in X12 or pipe-delimited format."""
     claims = await db.claims.find({
         "status": ClaimStatus.APPROVED.value,
         "adjudicated_at": {"$gte": date_from, "$lte": date_to}
     }, {"_id": 0}).to_list(10000)
     
-    # Simplified 835 format
-    lines = ["# EDI 835 Payment File", f"# Generated: {datetime.now(timezone.utc).isoformat()}", "# ClaimNumber|MemberID|ProviderNPI|TotalBilled|TotalAllowed|TotalPaid|MemberResp"]
+    if format == "x12":
+        # Generate real X12 835 format
+        now = datetime.now(timezone.utc)
+        date_str = now.strftime("%y%m%d")
+        time_str = now.strftime("%H%M")
+        isa_date = now.strftime("%y%m%d")
+        gs_date = now.strftime("%Y%m%d")
+        control_number = str(uuid.uuid4().int)[:9].zfill(9)
+        
+        lines = []
+        lines.append(f"ISA*00*          *00*          *ZZ*FLETCHFLOW     *ZZ*RECEIVER       *{isa_date}*{time_str}*^*00501*{control_number}*0*P*:~")
+        lines.append(f"GS*HP*FLETCHFLOW*RECEIVER*{gs_date}*{time_str}*1*X*005010X221A1~")
+        lines.append(f"ST*835*0001~")
+        lines.append(f"BPR*I*{sum(c.get('total_paid', 0) for c in claims):.2f}*C*ACH*CTX*01*999999999*DA*123456789*1234567890**01*999999999*DA*987654321*{gs_date}~")
+        lines.append(f"TRN*1*{control_number}*1234567890~")
+        lines.append(f"DTM*405*{gs_date}~")
+        lines.append(f"N1*PR*FletchFlow Claims System~")
+        lines.append(f"N1*PE*Provider Name*XX*1234567890~")
+        
+        for i, claim in enumerate(claims):
+            clp_status = "1" if claim.get("status") == "approved" else "2"
+            lines.append(f"CLP*{claim.get('claim_number', '')}*{clp_status}*{claim.get('total_billed', 0):.2f}*{claim.get('total_paid', 0):.2f}**MC*{claim.get('id', '')}~")
+            lines.append(f"NM1*QC*1*{claim.get('member_id', '')}~")
+            
+            for sl in claim.get("service_lines", []):
+                lines.append(f"SVC*HC:{sl.get('cpt_code', '')}*{sl.get('billed_amount', 0):.2f}*{sl.get('paid', 0):.2f}**{sl.get('units', 1)}~")
+                lines.append(f"DTM*472*{claim.get('service_date_from', '').replace('-', '')}~")
+                cas_adj = sl.get('billed_amount', 0) - sl.get('paid', 0)
+                if cas_adj > 0:
+                    lines.append(f"CAS*CO*45*{cas_adj:.2f}~")
+        
+        lines.append(f"SE*{len(lines) - 2}*0001~")
+        lines.append(f"GE*1*1~")
+        lines.append(f"IEA*1*{control_number}~")
+        
+        content = "\n".join(lines)
+    else:
+        # Pipe-delimited format (legacy)
+        output = ["# EDI 835 Payment File", f"# Generated: {datetime.now(timezone.utc).isoformat()}", "# ClaimNumber|MemberID|ProviderNPI|TotalBilled|TotalAllowed|TotalPaid|MemberResp"]
+        for claim in claims:
+            output.append(f"{claim['claim_number']}|{claim['member_id']}|{claim['provider_npi']}|{claim['total_billed']}|{claim['total_allowed']}|{claim['total_paid']}|{claim['member_responsibility']}")
+        content = "\n".join(output)
     
-    for claim in claims:
-        lines.append(f"{claim['claim_number']}|{claim['member_id']}|{claim['provider_npi']}|{claim['total_billed']}|{claim['total_allowed']}|{claim['total_paid']}|{claim['member_responsibility']}")
-    
-    return {"content": "\n".join(lines), "claim_count": len(claims)}
+    return {"content": content, "claim_count": len(claims), "format": format}
 
 # ==================== AUDIT LOGS ====================
 
@@ -1425,6 +1771,393 @@ async def fee_schedule_stats(user: dict = Depends(get_current_user)):
             for cat, count in sorted(categories.items(), key=lambda x: -x[1])
         ]
     }
+
+# ==================== DENTAL/VISION/HEARING CODE ENDPOINTS ====================
+
+@api_router.get("/dental-codes/search")
+async def search_dental(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=100),
+    user: dict = Depends(get_current_user)
+):
+    results = search_dental_codes(q, limit)
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/dental-codes/{code}")
+async def get_dental(code: str, user: dict = Depends(get_current_user)):
+    data = get_dental_code(code)
+    if not data:
+        raise HTTPException(status_code=404, detail="CDT code not found")
+    return {"code": code, **data}
+
+@api_router.get("/vision-codes/search")
+async def search_vision(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=100),
+    user: dict = Depends(get_current_user)
+):
+    results = search_vision_codes(q, limit)
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/vision-codes/{code}")
+async def get_vision(code: str, user: dict = Depends(get_current_user)):
+    data = get_vision_code(code)
+    if not data:
+        raise HTTPException(status_code=404, detail="Vision code not found")
+    return {"code": code, **data}
+
+@api_router.get("/hearing-codes/search")
+async def search_hearing(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=100),
+    user: dict = Depends(get_current_user)
+):
+    results = search_hearing_codes(q, limit)
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/hearing-codes/{code}")
+async def get_hearing(code: str, user: dict = Depends(get_current_user)):
+    data = get_hearing_code(code)
+    if not data:
+        raise HTTPException(status_code=404, detail="Hearing code not found")
+    return {"code": code, **data}
+
+@api_router.get("/code-database/stats")
+async def code_database_stats(user: dict = Depends(get_current_user)):
+    """Get stats across all code databases."""
+    dental_cats = {}
+    for code, data in CDT_CODES_DATABASE.items():
+        cat = data.get("category", "Other")
+        dental_cats[cat] = dental_cats.get(cat, 0) + 1
+    
+    vision_cats = {}
+    for code, data in VISION_CODES_DATABASE.items():
+        cat = data.get("category", "Other")
+        vision_cats[cat] = vision_cats.get(cat, 0) + 1
+    
+    hearing_cats = {}
+    for code, data in HEARING_CODES_DATABASE.items():
+        cat = data.get("category", "Other")
+        hearing_cats[cat] = hearing_cats.get(cat, 0) + 1
+    
+    return {
+        "medical": {"total": len(CPT_CODES_DATABASE), "localities": len(GPCI_LOCALITIES)},
+        "dental": {"total": len(CDT_CODES_DATABASE), "categories": dental_cats},
+        "vision": {"total": len(VISION_CODES_DATABASE), "categories": vision_cats},
+        "hearing": {"total": len(HEARING_CODES_DATABASE), "categories": hearing_cats},
+        "grand_total": len(CPT_CODES_DATABASE) + len(CDT_CODES_DATABASE) + len(VISION_CODES_DATABASE) + len(HEARING_CODES_DATABASE),
+    }
+
+
+# ==================== NETWORK REPRICING ====================
+
+class NetworkContract(BaseModel):
+    provider_npi: str
+    provider_name: str
+    network_name: str
+    contract_type: str = "percent_medicare"
+    multiplier: float = 1.2
+    effective_date: str
+    termination_date: Optional[str] = None
+    coverage_types: List[str] = ["medical"]
+
+@api_router.post("/network/contracts")
+async def create_network_contract(contract: NetworkContract, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Create a network provider contract."""
+    doc = {
+        "id": str(uuid.uuid4()),
+        **contract.model_dump(),
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.network_contracts.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/network/contracts")
+async def list_network_contracts(
+    network_name: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    query = {}
+    if network_name:
+        query["network_name"] = network_name
+    contracts = await db.network_contracts.find(query, {"_id": 0}).to_list(1000)
+    return contracts
+
+@api_router.get("/network/reprice/{claim_id}")
+async def reprice_claim(claim_id: str, user: dict = Depends(get_current_user)):
+    """Compare Medicare rates with network contracted rates for a claim."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    contract = await db.network_contracts.find_one(
+        {"provider_npi": claim.get("provider_npi"), "status": "active"},
+        {"_id": 0}
+    )
+    
+    repriced_lines = []
+    total_medicare = 0
+    total_network = 0
+    
+    for line in claim.get("service_lines", []):
+        code = line.get("cpt_code", "")
+        billed = line.get("billed_amount", 0)
+        units = line.get("units", 1)
+        
+        medicare_rate = calculate_medicare_rate(code, "00000", use_facility=True)
+        if not medicare_rate:
+            code_data = lookup_code_for_claim_type(code, claim.get("claim_type", "medical"))
+            medicare_rate = code_data.get("fee", billed * 0.8) if code_data else billed * 0.8
+        
+        medicare_allowed = medicare_rate * units
+        
+        if contract:
+            network_rate = medicare_rate * contract.get("multiplier", 1.2) * units
+        else:
+            network_rate = medicare_allowed
+        
+        total_medicare += medicare_allowed
+        total_network += network_rate
+        
+        repriced_lines.append({
+            "cpt_code": code,
+            "billed": billed,
+            "medicare_rate": round(medicare_rate, 2),
+            "medicare_allowed": round(medicare_allowed, 2),
+            "network_rate": round(network_rate, 2),
+            "savings_vs_billed": round(billed - network_rate, 2),
+        })
+    
+    return {
+        "claim_id": claim_id,
+        "claim_number": claim.get("claim_number"),
+        "provider_npi": claim.get("provider_npi"),
+        "has_contract": contract is not None,
+        "network_name": contract.get("network_name") if contract else None,
+        "contract_multiplier": contract.get("multiplier") if contract else None,
+        "total_billed": claim.get("total_billed", 0),
+        "total_medicare": round(total_medicare, 2),
+        "total_network": round(total_network, 2),
+        "total_savings": round(claim.get("total_billed", 0) - total_network, 2),
+        "lines": repriced_lines,
+    }
+
+@api_router.get("/network/summary")
+async def network_summary(user: dict = Depends(get_current_user)):
+    """Get network repricing summary across all claims."""
+    contracts = await db.network_contracts.find({"status": "active"}, {"_id": 0}).to_list(1000)
+    claims = await db.claims.find({"status": "approved"}, {"_id": 0, "total_billed": 1, "total_paid": 1, "total_allowed": 1}).to_list(10000)
+    
+    total_billed = sum(c.get("total_billed", 0) for c in claims)
+    total_paid = sum(c.get("total_paid", 0) for c in claims)
+    
+    return {
+        "active_contracts": len(contracts),
+        "total_claims_processed": len(claims),
+        "total_billed": round(total_billed, 2),
+        "total_paid": round(total_paid, 2),
+        "total_savings": round(total_billed - total_paid, 2),
+        "savings_percentage": round((total_billed - total_paid) / total_billed * 100, 1) if total_billed > 0 else 0,
+    }
+
+
+# ==================== PRIOR AUTHORIZATION ====================
+
+class PriorAuthRequest(BaseModel):
+    member_id: str
+    provider_npi: str
+    provider_name: str
+    service_type: str
+    procedure_codes: List[str]
+    diagnosis_codes: List[str]
+    requested_date: str
+    clinical_notes: str = ""
+    urgency: str = "routine"
+
+class PriorAuthDecision(BaseModel):
+    decision: str  # approved, denied, pended
+    notes: str = ""
+    approved_units: Optional[int] = None
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+
+@api_router.post("/prior-auth")
+async def create_prior_auth(auth_req: PriorAuthRequest, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Create a prior authorization request."""
+    auth_number = f"PA-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}"
+    
+    doc = {
+        "id": str(uuid.uuid4()),
+        "auth_number": auth_number,
+        **auth_req.model_dump(),
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user.get("id"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "decision_history": [],
+    }
+    await db.prior_authorizations.insert_one(doc)
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "prior_auth_created",
+        "user_id": user.get("id"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": {"auth_number": auth_number, "member_id": auth_req.member_id}
+    })
+    
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/prior-auth")
+async def list_prior_auth(
+    status: Optional[str] = None,
+    member_id: Optional[str] = None,
+    limit: int = Query(default=100, le=500),
+    user: dict = Depends(get_current_user)
+):
+    query = {}
+    if status:
+        query["status"] = status
+    if member_id:
+        query["member_id"] = member_id
+    auths = await db.prior_authorizations.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return auths
+
+@api_router.get("/prior-auth/{auth_id}")
+async def get_prior_auth(auth_id: str, user: dict = Depends(get_current_user)):
+    auth = await db.prior_authorizations.find_one({"id": auth_id}, {"_id": 0})
+    if not auth:
+        raise HTTPException(status_code=404, detail="Prior authorization not found")
+    return auth
+
+@api_router.post("/prior-auth/{auth_id}/decide")
+async def decide_prior_auth(auth_id: str, decision: PriorAuthDecision, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Approve, deny, or pend a prior authorization."""
+    auth = await db.prior_authorizations.find_one({"id": auth_id}, {"_id": 0})
+    if not auth:
+        raise HTTPException(status_code=404, detail="Prior authorization not found")
+    
+    update_data = {
+        "status": decision.decision,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "decided_by": user.get("id"),
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    if decision.decision == "approved":
+        update_data["approved_units"] = decision.approved_units
+        update_data["valid_from"] = decision.valid_from or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        update_data["valid_to"] = decision.valid_to or (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%d")
+    
+    decision_record = {
+        "decision": decision.decision,
+        "notes": decision.notes,
+        "decided_by": user.get("id"),
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    await db.prior_authorizations.update_one(
+        {"id": auth_id},
+        {"$set": update_data, "$push": {"decision_history": decision_record}}
+    )
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": f"prior_auth_{decision.decision}",
+        "user_id": user.get("id"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": {"auth_number": auth.get("auth_number"), "auth_id": auth_id}
+    })
+    
+    updated = await db.prior_authorizations.find_one({"id": auth_id}, {"_id": 0})
+    return updated
+
+
+# ==================== BATCH PROCESSING ====================
+
+class BatchClaimRequest(BaseModel):
+    claims: List[ClaimCreate]
+    auto_adjudicate: bool = True
+    locality_code: str = "00000"
+
+@api_router.post("/claims/batch")
+async def batch_process_claims(batch: BatchClaimRequest, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Process multiple claims in a batch."""
+    results = {
+        "total": len(batch.claims),
+        "created": 0,
+        "adjudicated": 0,
+        "errors": [],
+        "claim_ids": [],
+    }
+    
+    for i, claim_data in enumerate(batch.claims):
+        try:
+            result = await create_claim(claim_data, user)
+            results["created"] += 1
+            claim_id = result.get("id") if isinstance(result, dict) else None
+            if claim_id:
+                results["claim_ids"].append(claim_id)
+                if result.get("status") in ["approved", "denied"]:
+                    results["adjudicated"] += 1
+        except Exception as e:
+            results["errors"].append({"index": i, "error": str(e)})
+    
+    return results
+
+
+# ==================== COORDINATION OF BENEFITS ====================
+
+class COBInfo(BaseModel):
+    claim_id: str
+    primary_payer: str
+    primary_paid: float
+    primary_allowed: float
+    primary_member_resp: float
+
+@api_router.post("/claims/{claim_id}/cob")
+async def process_cob(claim_id: str, cob: COBInfo, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Process Coordination of Benefits - apply secondary plan payment."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    # Secondary plan pays remaining member responsibility up to allowed amount
+    remaining = cob.primary_member_resp
+    secondary_allowed = claim.get("total_allowed", 0)
+    secondary_pays = min(remaining, secondary_allowed - cob.primary_paid)
+    secondary_pays = max(0, secondary_pays)
+    final_member_resp = max(0, remaining - secondary_pays)
+    
+    cob_record = {
+        "primary_payer": cob.primary_payer,
+        "primary_paid": cob.primary_paid,
+        "primary_allowed": cob.primary_allowed,
+        "primary_member_resp": cob.primary_member_resp,
+        "secondary_paid": round(secondary_pays, 2),
+        "final_member_resp": round(final_member_resp, 2),
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "processed_by": user.get("id"),
+    }
+    
+    await db.claims.update_one(
+        {"id": claim_id},
+        {"$set": {
+            "cob_info": cob_record,
+            "total_paid": round(claim.get("total_paid", 0) + secondary_pays, 2) if claim.get("status") != "approved" else claim.get("total_paid", 0),
+            "member_responsibility": round(final_member_resp, 2),
+        }}
+    )
+    
+    return {
+        "claim_id": claim_id,
+        "cob": cob_record,
+        "total_all_payers": round(cob.primary_paid + secondary_pays, 2),
+    }
+
 
 # ==================== ROOT ENDPOINT ====================
 

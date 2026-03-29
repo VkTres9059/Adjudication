@@ -74,7 +74,7 @@ export default function Login() {
             </h2>
             <p className="text-sm text-[#64645F] mb-8">
               {isRegister
-                ? 'Get started with Javelina claims platform'
+                ? 'Get started with FletchFlow claims platform'
                 : 'Enter your credentials to access the dashboard'}
             </p>
 
@@ -241,26 +241,26 @@ export default function Login() {
           </h2>
           
           <p className="text-lg text-white/70 mb-12">
-            Automate your claims processing with advanced duplicate detection, 
-            Medicare fee schedule pricing, and real-time analytics.
+            Multi-line claims adjudication with real-time duplicate detection, 
+            Medicare fee schedule pricing, and EDI 834/837/835 processing.
           </p>
 
           <div className="grid grid-cols-2 gap-6">
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 text-left">
-              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">95%</div>
-              <div className="text-sm text-white/60">Auto-adjudication rate</div>
+              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">4</div>
+              <div className="text-sm text-white/60">Coverage lines</div>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 text-left">
-              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">$2.4M</div>
-              <div className="text-sm text-white/60">Duplicate savings</div>
+              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">377+</div>
+              <div className="text-sm text-white/60">Procedure codes</div>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 text-left">
-              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">&lt;4hrs</div>
-              <div className="text-sm text-white/60">Avg turnaround</div>
+              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">87</div>
+              <div className="text-sm text-white/60">GPCI localities</div>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 text-left">
-              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">100%</div>
-              <div className="text-sm text-white/60">Audit compliance</div>
+              <div className="text-3xl font-bold text-white font-['Outfit'] mb-1">X12</div>
+              <div className="text-sm text-white/60">EDI compliant</div>
             </div>
           </div>
         </div>

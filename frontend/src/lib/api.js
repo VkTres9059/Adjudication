@@ -69,6 +69,8 @@ export const claimsAPI = {
   get: (id) => api.get(`/claims/${id}`),
   create: (data) => api.post('/claims', data),
   adjudicate: (id, action) => api.post(`/claims/${id}/adjudicate`, action),
+  batch: (data) => api.post('/claims/batch', data),
+  cob: (id, data) => api.post(`/claims/${id}/cob`, data),
 };
 
 export const duplicatesAPI = {
@@ -103,10 +105,36 @@ export const ediAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  generate835: (dateFrom, dateTo) => 
-    api.get('/edi/generate-835', { params: { date_from: dateFrom, date_to: dateTo } }),
+  generate835: (dateFrom, dateTo, format = 'x12') => 
+    api.get('/edi/generate-835', { params: { date_from: dateFrom, date_to: dateTo, format } }),
 };
 
 export const auditAPI = {
   list: (params) => api.get('/audit-logs', { params }),
+};
+
+export const networkAPI = {
+  contracts: (params) => api.get('/network/contracts', { params }),
+  createContract: (data) => api.post('/network/contracts', data),
+  reprice: (claimId) => api.get(`/network/reprice/${claimId}`),
+  summary: () => api.get('/network/summary'),
+};
+
+export const priorAuthAPI = {
+  list: (params) => api.get('/prior-auth', { params }),
+  get: (id) => api.get(`/prior-auth/${id}`),
+  create: (data) => api.post('/prior-auth', data),
+  decide: (id, data) => api.post(`/prior-auth/${id}/decide`, data),
+};
+
+export const codeAPI = {
+  searchCPT: (q, limit = 50) => api.get('/cpt-codes/search', { params: { q, limit } }),
+  searchDental: (q, limit = 50) => api.get('/dental-codes/search', { params: { q, limit } }),
+  searchVision: (q, limit = 50) => api.get('/vision-codes/search', { params: { q, limit } }),
+  searchHearing: (q, limit = 50) => api.get('/hearing-codes/search', { params: { q, limit } }),
+  dbStats: () => api.get('/code-database/stats'),
+};
+
+export const batchAPI = {
+  processClaims: (data) => api.post('/claims/batch', data),
 };

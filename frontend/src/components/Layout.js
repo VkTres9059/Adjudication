@@ -14,6 +14,9 @@ import {
   Building2,
   ChevronDown,
   Calculator,
+  Shield,
+  Globe,
+  Database,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -30,6 +33,9 @@ const navigation = [
   { name: 'Claims', href: '/claims', icon: FileText },
   { name: 'Plans', href: '/plans', icon: Building2 },
   { name: 'Members', href: '/members', icon: Users },
+  { name: 'Prior Auth', href: '/prior-auth', icon: Shield },
+  { name: 'Network', href: '/network', icon: Globe },
+  { name: 'Code Database', href: '/code-database', icon: Database },
   { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },
   { name: 'Duplicates', href: '/duplicates', icon: AlertTriangle },
   { name: 'Reports', href: '/reports', icon: BarChart3 },

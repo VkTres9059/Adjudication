@@ -182,9 +182,9 @@ export default function Settings() {
               </h4>
               <div className="flex flex-wrap gap-2">
                 <Badge className="badge-approved">Medical</Badge>
-                <Badge className="badge-pended">Dental (Coming Soon)</Badge>
-                <Badge className="badge-pended">Vision (Coming Soon)</Badge>
-                <Badge className="badge-pended">Hearing (Coming Soon)</Badge>
+                <Badge className="badge-approved">Dental</Badge>
+                <Badge className="badge-approved">Vision</Badge>
+                <Badge className="badge-approved">Hearing</Badge>
               </div>
             </div>
           </div>

@@ -12,6 +12,9 @@ import Duplicates from "./pages/Duplicates";
 import FeeSchedule from "./pages/FeeSchedule";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import PriorAuth from "./pages/PriorAuth";
+import Network from "./pages/Network";
+import CodeDatabase from "./pages/CodeDatabase";
 import Layout from "./components/Layout";
 import "./App.css";
 
@@ -78,6 +81,9 @@ function AppRoutes() {
         <Route path="members" element={<Members />} />
         <Route path="fee-schedule" element={<FeeSchedule />} />
         <Route path="duplicates" element={<Duplicates />} />
+        <Route path="prior-auth" element={<PriorAuth />} />
+        <Route path="network" element={<Network />} />
+        <Route path="code-database" element={<CodeDatabase />} />
         <Route path="reports" element={<Reports />} />
         <Route 
           path="settings" 
