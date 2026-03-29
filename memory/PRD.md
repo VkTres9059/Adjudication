@@ -1,99 +1,84 @@
-# FletchFlow Claims Adjudication System - PRD
+# FletchFlow — Claims Adjudication System PRD
 
 ## Original Problem Statement
 Build a scalable, API-first claims adjudication system supporting multiple lines of coverage. Start with Medical coverage, use Microsoft MFA for authentication, accept EDI 834/837 input with 835 output. Provide reporting for claims/eligibility. Implement strict duplicate claim prevention, built-in Medicare fee schedules, multi-line coverage, a comprehensive Preventive Coverage module, and Group Management.
 
-## Architecture (v2.0 - Modular)
-```
-/app/backend/
-├── server.py              # Slim entry (~63 lines): FastAPI app, CORS, router includes
-├── core/
-│   ├── config.py          # JWT, logging config
-│   ├── database.py        # MongoDB connection
-│   └── auth.py            # Auth helpers (hash, verify, token, RBAC)
-├── models/
-│   ├── enums.py           # UserRole, ClaimStatus, ClaimType, etc.
-│   └── schemas.py         # All Pydantic models
-├── services/
-│   ├── adjudication.py    # Claims adjudication engine
-│   ├── claims.py          # Shared claim creation logic
-│   ├── duplicates.py      # Duplicate detection
-│   ├── examiner.py        # Auto-assignment engine
-│   └── edi_parser.py      # X12 834/837 parsing
-├── routers/ (16 routers)
-│   ├── auth.py, plans.py, members.py, groups.py
-│   ├── claims.py, examiner.py, duplicates.py
-│   ├── dashboard.py, reports.py, edi.py
-│   ├── codes.py, network.py, prior_auth.py
-│   ├── preventive.py, settings.py, audit.py
-├── cpt_codes.py, dental_codes.py, vision_codes.py
-├── hearing_codes.py, preventive_services.py
-```
+## Architecture
+- **Frontend**: React + Tailwind CSS + Shadcn UI, collapsible categorized sidebar
+- **Backend**: FastAPI (modular routers), MongoDB, JWT Auth (MSAL fallback)
+- **Structure**: `/app/backend/routers/`, `/app/backend/services/`, `/app/backend/models/`, `/app/backend/core/`
 
-Frontend: React + Tailwind CSS + Shadcn UI
-Pages: Dashboard, Claims, ClaimDetail, Plans, Members, Groups, Reports, Settings, ExaminerQueue, Prior Auth, Preventive, Network, Code Database, Fee Schedule, Duplicates
+## Completed Features (as of Mar 2026)
 
-## What's Been Implemented
-### Phase 1: Core Claims Engine
-- Multi-line coverage (Medical, Dental, Vision, Hearing)
-- Medicare fee schedule with GPCI localities
-- Duplicate claim detection (exact, near, line-level)
-- EDI 834/837 intake, 835 output
-- JWT authentication with RBAC
+### Phase 1 — Core Claims Engine
+- Multi-line claims adjudication (Medical, Dental, Vision, Pharmacy)
+- Medicare fee schedule pricing (377+ CPT codes, 87 GPCI localities)
+- Real-time duplicate claim detection
+- EDI 834/837 intake, 835 output (mocked parser)
+- JWT authentication with role-based access (Admin, Examiner, Viewer)
+- Group Management with stop-loss analytics
+- Preventive Coverage module
+- Dashboard with metrics, claims-by-status, claims-by-type charts
 
-### Phase 2: MEC 1 Auto-Adjudication
-- MEC 1 plan template from SOB
-- ACA-compliant preventive-only adjudication
-- Auto-deny non-preventive on MEC plans
+### Phase 2 — Adjudication Gateway & Examiner Workspace
+- Tiered Authorization Matrix (auto-approve, examiner review, manager approval)
+- Global Adjudication Gateway settings
+- Examiner Queue Dashboard with auto-assignment engine
+- Hard Hold / Soft Hold claim states
+- Prior Authorization tracking
+- COB (Coordination of Benefits) processing
 
-### Phase 3: Global Adjudication Gateway
-- Tiered Authorization Matrix (Tier 1/2/3)
-- Auto-Pilot, Audit Hold, Hard Hold
-- Configurable thresholds
+### Phase 3 — Eligibility & Member Lifecycle
+- Reconciliation Dashboard
+- Retroactive Termination / Clawback
+- Pending Eligibility Queue
+- Age-Out Rules
 
-### Phase 4: Examiner Workspace
-- Multi-Plan Examiner Workspace
-- Managerial Hold (place/release)
-- Force Preventive, Adjust Deductible, Carrier Notification
-- Examiner Queue Dashboard + Auto-Assignment Engine
-- Performance Metrics
+### Phase 4 — Backend Refactoring
+- Migrated ~3,850 line server.py monolith to modular router architecture
+- 16 routers: auth, plans, members, groups, claims, examiner, duplicates, dashboard, reports, edi, codes, network, prior_auth, preventive, settings, audit, hour_bank
 
-### Phase 5: Advanced Eligibility
-- Reconciliation Dashboard (Census vs TPA 834)
-- Retroactive Termination + Clawback Ledger
-- 72-Hour Pending Eligibility Queue
-- Age-Out Rules (26th birthday alerts)
-- Member Audit Trail
+### Phase 5 — Navigation & UX
+- Collapsible categorized sidebar (Operations, Plan Management, Claims Center, Network & Groups)
 
-### Phase 6: Modular Refactor (March 2026)
-- Refactored ~3850-line monolithic server.py into modular architecture
-- 16 routers, 5 services, 2 model files, 3 core files
-- 100% regression test pass rate (iteration 10)
-- Zero frontend changes required
+### Phase 6 — Variable Hour Bank Module (Base + Upgrade)
+- **Base**: SFTP work report ingestion, hour bank ledger, auto-status flip
+- **Upgrade (Mar 29 2026)**:
+  - Multi-Tier Banking: Current Month + Reserve Bank (capped at 500 hrs)
+  - Predictive Eligibility Alerts: Burn rate calc, months remaining, at-risk flags (<2x threshold)
+  - Automated Bridge Payment Logic: Cash-to-hours conversion, instant member activation
+  - Manual Hour Entry form (add/deduct hours with audit trail)
+  - Claims Integration Gatekeeper: Hour bank check before adjudication; short-hour members routed to Examiner Queue with "Eligibility Hold"
+  - Eligibility Source Tracking: Badges on claims (Standard Hours, Reserve Draw, Bridge Payment, Insufficient)
+  - Bridge Payment Settings: Toggle + rate-per-hour config in Settings
+  - Predictive Eligibility Dashboard: Summary cards + full member table in Reports
+  - Enhanced Hour Bank Deficiency Report: Multi-tier columns, burn rate, months remaining, at-risk flags
+  - All UI is 100% static with tabular-nums and fixed heights (zero layout jitter)
 
-### Phase 7: Navigation Consolidation (March 2026)
-- Collapsible Categorized Sidebar with 4 groups:
-  - Operations (Dashboard, Examiner Queue, Reports)
-  - Plan Management (Plans, Preventive, Code Database)
-  - Claims Center (Claims, Prior Auth, Duplicates, Fee Schedule)
-  - Network & Groups (Groups, Members, Network)
-- Settings as standalone admin footer item
-- Chevron icons with rotation animation for expand/collapse
-- Auto-expand active category based on current route
-- Sub-menu indentation with left border for visual hierarchy
-- Constant 256px sidebar width (zero-jitter)
-- 100% test pass rate (iteration 11)
+## Key Endpoints
+- `POST /api/hour-bank/upload-work-report` — CSV ingestion
+- `GET /api/hour-bank/{member_id}` — Multi-tier ledger
+- `POST /api/hour-bank/{member_id}/manual-entry` — Manual hours
+- `POST /api/hour-bank/{member_id}/bridge-payment` — Bridge payment
+- `POST /api/hour-bank/run-monthly` — Monthly deduction cycle
+- `GET /api/hour-bank/notifications/list` — Low-balance alerts
+- `GET /api/settings/bridge-payment` — Bridge config
+- `PUT /api/settings/bridge-payment` — Update bridge config
+- `GET /api/reports/predictive-eligibility` — Predictive dashboard
+- `GET /api/reports/hour-bank-deficiency` — Enhanced deficiency report
 
-## Backlog
-- P1: Carrier Bordereaux Reporting Module
-- P1: Real X12 EDI parser for 834/837/835
-- P1: Azure AD credentials for MSAL (currently JWT fallback)
-- P2: Network repricing vs contracted rates
-- P2: External billing system API integration
-- P3: Member self-service portal
+## Upcoming Tasks (Prioritized Backlog)
+- **P1**: Carrier Bordereaux Reporting Module
+- **P1**: Real X12 EDI parser (834/837/835)
+- **P1**: Azure AD MSAL real credentials
+- **P2**: Network repricing vs contracted rates
+- **P2**: External billing system API integration
+- **P3**: Member self-service portal
 
-## DB Collections
-users, plans, claims, members, groups, audit_logs, duplicate_alerts, accumulators, settings, network_contracts, prior_authorizations, clawback_ledger, member_audit_trail, tpa_834_feed, preventive_utilization, gateway_config, hour_bank, hour_bank_entries
+## Mocked/Stubbed
+- Real X12 EDI parsing (mocked)
+- MSAL Azure AD (JWT fallback)
 
 ## Test Reports
-- iteration_6.json through iteration_10.json (all 100% pass)
+- Iterations 1-12: Core features, refactoring, sidebar, base hour bank (all passing)
+- Iteration 13: Hour Bank Module Upgrade — 100% pass (11/11 backend, all frontend)
