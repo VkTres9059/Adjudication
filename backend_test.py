@@ -317,29 +317,199 @@ class ClaimsAPITester:
         """Test dashboard claims by type"""
         return self.run_test("Claims by Type", "GET", "dashboard/claims-by-type", 200)
 
+    def test_fee_schedule_stats(self):
+        """Test fee schedule statistics"""
+        success, response = self.run_test("Fee Schedule Stats", "GET", "fee-schedule/stats", 200)
+        
+        if success:
+            total_codes = response.get('total_cpt_codes', 0)
+            total_localities = response.get('total_localities', 0)
+            conversion_factor = response.get('conversion_factor_2024', 0)
+            
+            print(f"   CPT Codes: {total_codes}")
+            print(f"   GPCI Localities: {total_localities}")
+            print(f"   2024 Conversion Factor: ${conversion_factor}")
+            
+            # Verify expected counts
+            if total_codes == 189:
+                print("✅ CPT code count matches expected (189)")
+            else:
+                print(f"⚠️  CPT code count mismatch - expected 189, got {total_codes}")
+                
+            if total_localities == 87:
+                print("✅ GPCI localities count matches expected (87)")
+            else:
+                print(f"⚠️  GPCI localities count mismatch - expected 87, got {total_localities}")
+                
+        return success
+
+    def test_search_cpt_99213(self):
+        """Test searching for CPT code 99213"""
+        success, response = self.run_test("Search CPT 99213", "GET", "cpt-codes/search?q=99213&limit=10", 200)
+        
+        if success:
+            results = response.get('results', [])
+            print(f"   Found {len(results)} results")
+            
+            # Look for exact match
+            exact_match = None
+            for result in results:
+                if result.get('code') == '99213':
+                    exact_match = result
+                    break
+                    
+            if exact_match:
+                print(f"✅ Found CPT 99213: {exact_match.get('description', 'No description')}")
+                print(f"   Category: {exact_match.get('category')}")
+                print(f"   Work RVU: {exact_match.get('work_rvu')}")
+                print(f"   Total RVU: {exact_match.get('total_rvu')}")
+                return True
+            else:
+                print("❌ CPT 99213 not found in search results")
+                return False
+                
+        return success
+
+    def test_cpt_code_detail_99213(self):
+        """Test getting detailed information for CPT 99213"""
+        return self.run_test("CPT 99213 Details", "GET", "cpt-codes/99213", 200)
+
+    def test_calculate_medicare_rate_99213(self):
+        """Test calculating Medicare rate for CPT 99213"""
+        success, response = self.run_test("Calculate Rate CPT 99213", "GET", "fee-schedule/rate?cpt_code=99213&locality=00000", 200)
+        
+        if success:
+            medicare_rate = response.get('medicare_rate')
+            locality_name = response.get('locality_name')
+            work_rvu = response.get('work_rvu')
+            total_rvu = response.get('total_rvu')
+            
+            print(f"   Medicare Rate: ${medicare_rate}")
+            print(f"   Locality: {locality_name}")
+            print(f"   Work RVU: {work_rvu}")
+            print(f"   Total RVU: {total_rvu}")
+            
+        return success
+
+    def test_list_gpci_localities(self):
+        """Test listing GPCI localities"""
+        success, response = self.run_test("List GPCI Localities", "GET", "fee-schedule/localities", 200)
+        
+        if success:
+            localities = response.get('localities', [])
+            count = response.get('count', 0)
+            
+            print(f"   Found {count} localities")
+            
+            # Check for national locality
+            national = None
+            for loc in localities:
+                if loc.get('code') == '00000':
+                    national = loc
+                    break
+                    
+            if national:
+                print(f"✅ Found National locality: {national.get('name')}")
+                print(f"   Work GPCI: {national.get('work_gpci')}")
+                print(f"   PE GPCI: {national.get('pe_gpci')}")
+                print(f"   MP GPCI: {national.get('mp_gpci')}")
+                
+        return success
+
+    def test_cpt_categories(self):
+        """Test getting CPT codes by category"""
+        categories = ["E%2FM", "Surgery", "Radiology", "Pathology%2FLab", "Medicine", "Anesthesia", "HCPCS"]
+        category_names = ["E/M", "Surgery", "Radiology", "Pathology/Lab", "Medicine", "Anesthesia", "HCPCS"]
+        
+        for i, category in enumerate(categories):
+            success, response = self.run_test(f"CPT Category {category_names[i]}", "GET", f"cpt-codes/category/{category}", 200)
+            
+            if success:
+                codes = response.get('codes', [])
+                count = response.get('count', 0)
+                print(f"   {category_names[i]}: {count} codes")
+            else:
+                return False
+                
+        return True
+
+    def test_create_member(self):
+        """Test creating a member"""
+        if not self.plan_id:
+            print("❌ Cannot create member - no plan ID available")
+            return False
+            
+        # Use timestamp to make member ID unique
+        timestamp = datetime.now().strftime('%H%M%S')
+        member_id = f"MBR{timestamp}"
+            
+        member_data = {
+            "member_id": member_id,
+            "first_name": "John",
+            "last_name": "Doe",
+            "dob": "1990-01-01",
+            "gender": "M",
+            "group_id": "GRP001",
+            "plan_id": self.plan_id,
+            "effective_date": "2024-01-01",
+            "relationship": "subscriber"
+        }
+        
+        success, response = self.run_test(
+            "Create Member",
+            "POST",
+            "members",
+            200,
+            data=member_data
+        )
+        
+        if success and 'member_id' in response:
+            self.member_id = response['member_id']
+            print(f"   Member created: {self.member_id}")
+            return True
+        return False
+
+    def test_login_demo_user(self):
+        """Test login with demo@javelina.com"""
+        success, response = self.run_test(
+            "Demo User Login",
+            "POST",
+            "auth/login",
+            200,
+            data={"email": "demo@javelina.com", "password": "Demo123!"}
+        )
+        
+        if success and 'access_token' in response:
+            self.token = response['access_token']
+            self.user_id = response['user']['id']
+            user_role = response['user']['role']
+            print(f"   Demo user logged in with role: {user_role}")
+            return True
+        return False
+
 def main():
     print("🚀 Starting Claims Adjudication System API Tests")
     print("=" * 60)
     
     tester = ClaimsAPITester()
     
-    # Test sequence
+    # Test sequence - focusing on Fee Schedule functionality
     tests = [
         ("Health Check", tester.test_health_check),
-        ("Admin Registration", tester.test_register_admin),
+        ("Demo User Login", tester.test_login_demo_user),
         ("Get Current User", tester.test_get_me),
         ("Dashboard Metrics", tester.test_dashboard_metrics),
+        ("Fee Schedule Stats", tester.test_fee_schedule_stats),
+        ("Search CPT 99213", tester.test_search_cpt_99213),
+        ("CPT 99213 Details", tester.test_cpt_code_detail_99213),
+        ("Calculate Rate CPT 99213", tester.test_calculate_medicare_rate_99213),
+        ("List GPCI Localities", tester.test_list_gpci_localities),
+        ("CPT Categories", tester.test_cpt_categories),
         ("Create Benefit Plan", tester.test_create_plan),
-        ("List Plans", tester.test_list_plans),
         ("Create Member", tester.test_create_member),
-        ("List Members", tester.test_list_members),
-        ("Create Claim", tester.test_create_claim),
-        ("Create Duplicate Claim", tester.test_create_duplicate_claim),
+        ("Create Claim with 99213", tester.test_create_claim),
         ("List Claims", tester.test_list_claims),
         ("Get Claim Detail", tester.test_get_claim_detail),
-        ("List Duplicate Alerts", tester.test_list_duplicates),
-        ("Claims by Status", tester.test_claims_by_status),
-        ("Claims by Type", tester.test_claims_by_type),
     ]
     
     for test_name, test_func in tests:

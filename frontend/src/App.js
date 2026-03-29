@@ -9,6 +9,7 @@ import Plans from "./pages/Plans";
 import PlanBuilder from "./pages/PlanBuilder";
 import Members from "./pages/Members";
 import Duplicates from "./pages/Duplicates";
+import FeeSchedule from "./pages/FeeSchedule";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Layout from "./components/Layout";
@@ -75,6 +76,7 @@ function AppRoutes() {
           } 
         />
         <Route path="members" element={<Members />} />
+        <Route path="fee-schedule" element={<FeeSchedule />} />
         <Route path="duplicates" element={<Duplicates />} />
         <Route path="reports" element={<Reports />} />
         <Route 

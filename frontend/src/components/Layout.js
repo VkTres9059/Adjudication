@@ -13,6 +13,7 @@ import {
   X,
   Building2,
   ChevronDown,
+  Calculator,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ const navigation = [
   { name: 'Claims', href: '/claims', icon: FileText },
   { name: 'Plans', href: '/plans', icon: Building2 },
   { name: 'Members', href: '/members', icon: Users },
+  { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },
   { name: 'Duplicates', href: '/duplicates', icon: AlertTriangle },
   { name: 'Reports', href: '/reports', icon: BarChart3 },
 ];

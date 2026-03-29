@@ -16,6 +16,18 @@ from enum import Enum
 import re
 from difflib import SequenceMatcher
 
+# Import CPT codes and Medicare fee schedule
+from cpt_codes import (
+    CPT_CODES_DATABASE,
+    GPCI_LOCALITIES,
+    CONVERSION_FACTOR_2024,
+    get_cpt_code,
+    get_codes_by_category,
+    calculate_medicare_rate,
+    get_all_localities,
+    search_cpt_codes,
+)
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -407,8 +419,8 @@ async def detect_duplicates(claim_data: dict) -> List[Dict]:
 
 # ==================== ADJUDICATION ENGINE ====================
 
-async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
-    """Apply plan rules to adjudicate a claim"""
+async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code: str = "00000") -> dict:
+    """Apply plan rules to adjudicate a claim using Medicare fee schedule"""
     
     adjudication_notes = []
     total_allowed = 0
@@ -450,25 +462,75 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
     deductible = plan["deductible_individual"]
     oop_max = plan["oop_max_individual"]
     
+    # Get plan reimbursement method and multiplier
+    reimbursement_method = plan.get("reimbursement_method", "fee_schedule")
+    # Default multipliers based on reimbursement method
+    method_multipliers = {
+        "fee_schedule": 1.0,
+        "percent_medicare": 1.2,  # 120% of Medicare
+        "percent_billed": 0.8,    # 80% of billed
+        "rbp": 1.4,               # 140% of Medicare for RBP
+        "contracted": 1.0         # Use contracted/Medicare rates
+    }
+    rate_multiplier = method_multipliers.get(reimbursement_method, 1.0)
+    
     # Process each service line
     processed_lines = []
     for line in claim["service_lines"]:
         cpt_code = line["cpt_code"]
         billed = line["billed_amount"]
+        units = line.get("units", 1)
         
-        # Find matching benefit
+        # Look up CPT code in Medicare fee schedule
+        cpt_data = get_cpt_code(cpt_code)
+        
+        # Find matching benefit category
         benefit = None
         for b in plan.get("benefits", []):
             if b.get("code_range"):
-                # Simple code range matching
+                # Code range matching
                 if cpt_code.startswith(b["code_range"][:3]):
                     benefit = b
                     break
             elif b.get("service_category"):
-                benefit = b  # Default benefit
+                # Category matching based on CPT data
+                if cpt_data:
+                    cpt_category = cpt_data.get("category", "")
+                    service_cat = b.get("service_category", "").lower()
+                    # Map CPT categories to service categories
+                    category_map = {
+                        "E/M": ["office visit", "preventive", "hospital", "emergency", "evaluation"],
+                        "Surgery": ["surgery", "procedure"],
+                        "Radiology": ["imaging", "radiology", "x-ray", "ct", "mri"],
+                        "Pathology/Lab": ["lab", "pathology", "diagnostic"],
+                        "Medicine": ["physical therapy", "immunization", "vaccine", "cardio", "pulmonary"],
+                        "Anesthesia": ["anesthesia"],
+                        "HCPCS": ["drug", "injection", "dme", "equipment"]
+                    }
+                    if cpt_category in category_map:
+                        for keyword in category_map[cpt_category]:
+                            if keyword in service_cat:
+                                benefit = b
+                                break
+                if benefit:
+                    break
         
         if not benefit:
             benefit = {"covered": True, "copay": 0, "coinsurance": 0.2, "deductible_applies": True}
+        
+        # Check if service is covered
+        if not benefit.get("covered", True):
+            processed_lines.append({
+                **line,
+                "allowed": 0,
+                "paid": 0,
+                "member_resp": billed,
+                "denial_reason": "Service not covered under plan",
+                "medicare_rate": None
+            })
+            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - NOT COVERED under benefit plan")
+            member_responsibility += billed
+            continue
         
         # Check exclusions
         if cpt_code in plan.get("exclusions", []):
@@ -477,9 +539,11 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
                 "allowed": 0,
                 "paid": 0,
                 "member_resp": billed,
-                "denial_reason": "Service excluded from coverage"
+                "denial_reason": "Service excluded from coverage",
+                "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: Service {cpt_code} excluded")
+            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - EXCLUDED from coverage")
+            member_responsibility += billed
             continue
         
         # Check prior auth if required
@@ -489,13 +553,41 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
                 "allowed": 0,
                 "paid": 0,
                 "member_resp": billed,
-                "denial_reason": "Prior authorization required"
+                "denial_reason": "Prior authorization required",
+                "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: Prior auth required for {cpt_code}")
+            adjudication_notes.append(f"Line {line['line_number']}: {cpt_code} - Prior auth REQUIRED but not provided")
+            member_responsibility += billed
             continue
         
-        # Calculate allowed amount (simplified - use fee schedule percentage)
-        allowed = billed * 0.8  # Simplified: 80% of billed is allowed
+        # Calculate allowed amount using Medicare fee schedule
+        medicare_rate = None
+        if cpt_data:
+            # Use Medicare rate with GPCI adjustment
+            medicare_rate = calculate_medicare_rate(cpt_code, locality_code, use_facility=True)
+            
+            if medicare_rate:
+                # Apply plan's reimbursement method multiplier
+                allowed = medicare_rate * rate_multiplier * units
+                adjudication_notes.append(
+                    f"Line {line['line_number']}: {cpt_code} ({cpt_data.get('description', 'Unknown')[:50]}...) - "
+                    f"Medicare Rate: ${medicare_rate:.2f}, Method: {reimbursement_method} ({rate_multiplier*100:.0f}%)"
+                )
+            else:
+                # Fallback: use percentage of billed
+                allowed = billed * 0.8
+                adjudication_notes.append(
+                    f"Line {line['line_number']}: {cpt_code} - No Medicare rate, using 80% of billed"
+                )
+        else:
+            # Unknown CPT code - use percentage of billed
+            allowed = billed * 0.8
+            adjudication_notes.append(
+                f"Line {line['line_number']}: {cpt_code} - UNKNOWN CPT code, using 80% of billed"
+            )
+        
+        # Cap allowed at billed amount
+        allowed = min(allowed, billed)
         
         # Apply deductible
         line_deductible = 0
@@ -520,6 +612,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
             # OOP max reached - plan pays more
             paid += (member_resp_this_line - remaining_oop)
             member_resp_this_line = remaining_oop
+            adjudication_notes.append(f"Line {line['line_number']}: OOP MAX reached - additional plan payment applied")
         
         accumulators["oop_met"] += member_resp_this_line
         
@@ -533,12 +626,12 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict) -> dict:
             "paid": round(max(0, paid), 2),
             "member_resp": round(member_resp_this_line, 2),
             "deductible_applied": round(line_deductible, 2),
-            "coinsurance_applied": round(coinsurance_amount, 2)
+            "coinsurance_applied": round(coinsurance_amount, 2),
+            "medicare_rate": medicare_rate,
+            "cpt_description": cpt_data.get("description", "Unknown") if cpt_data else "Unknown",
+            "work_rvu": cpt_data.get("work_rvu") if cpt_data else None,
+            "total_rvu": cpt_data.get("total_rvu") if cpt_data else None
         })
-        
-        adjudication_notes.append(
-            f"Line {line['line_number']}: {cpt_code} - Billed: ${billed:.2f}, Allowed: ${allowed:.2f}, Paid: ${paid:.2f}"
-        )
     
     # Update accumulators
     await db.accumulators.update_one(
@@ -1219,6 +1312,115 @@ async def get_audit_logs(
     
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
     return logs
+
+# ==================== CPT CODES & FEE SCHEDULE ENDPOINTS ====================
+
+@api_router.get("/cpt-codes/search")
+async def search_cpt(
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(default=50, le=100),
+    user: dict = Depends(get_current_user)
+):
+    """Search CPT codes by code or description"""
+    results = search_cpt_codes(q, limit)
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/cpt-codes/{code}")
+async def get_cpt_code_details(code: str, user: dict = Depends(get_current_user)):
+    """Get detailed information for a specific CPT code"""
+    cpt_data = get_cpt_code(code)
+    if not cpt_data:
+        raise HTTPException(status_code=404, detail="CPT code not found")
+    return {"code": code, **cpt_data}
+
+@api_router.get("/cpt-codes/category/{category}")
+async def get_codes_by_cat(
+    category: str,
+    user: dict = Depends(get_current_user)
+):
+    """Get all CPT codes in a specific category"""
+    valid_categories = ["E/M", "Anesthesia", "Surgery", "Radiology", "Pathology/Lab", "Medicine", "HCPCS"]
+    if category not in valid_categories:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Valid: {valid_categories}")
+    codes = get_codes_by_category(category)
+    return {"category": category, "codes": codes, "count": len(codes)}
+
+@api_router.get("/fee-schedule/rate")
+async def calculate_rate(
+    cpt_code: str,
+    locality: str = Query(default="00000", description="GPCI locality code"),
+    facility: bool = Query(default=True, description="Use facility rate"),
+    user: dict = Depends(get_current_user)
+):
+    """Calculate Medicare reimbursement rate for a CPT code with GPCI adjustment"""
+    cpt_data = get_cpt_code(cpt_code)
+    if not cpt_data:
+        raise HTTPException(status_code=404, detail="CPT code not found")
+    
+    locality_data = GPCI_LOCALITIES.get(locality)
+    if not locality_data:
+        raise HTTPException(status_code=400, detail="Invalid locality code")
+    
+    rate = calculate_medicare_rate(cpt_code, locality, use_facility=facility)
+    
+    return {
+        "cpt_code": cpt_code,
+        "description": cpt_data.get("description"),
+        "category": cpt_data.get("category"),
+        "locality_code": locality,
+        "locality_name": locality_data.get("name"),
+        "facility_setting": facility,
+        "work_rvu": cpt_data.get("work_rvu"),
+        "pe_rvu": cpt_data.get("pe_rvu"),
+        "mp_rvu": cpt_data.get("mp_rvu"),
+        "total_rvu": cpt_data.get("total_rvu"),
+        "gpci_work": locality_data.get("work"),
+        "gpci_pe": locality_data.get("pe"),
+        "gpci_mp": locality_data.get("mp"),
+        "conversion_factor": CONVERSION_FACTOR_2024,
+        "medicare_rate": rate,
+        "national_facility_rate": cpt_data.get("facility_rate"),
+        "national_non_facility_rate": cpt_data.get("non_facility_rate")
+    }
+
+@api_router.get("/fee-schedule/localities")
+async def list_localities(user: dict = Depends(get_current_user)):
+    """Get all GPCI localities with their adjustment factors"""
+    localities = get_all_localities()
+    return {
+        "localities": [
+            {
+                "code": code,
+                "name": data["name"],
+                "work_gpci": data["work"],
+                "pe_gpci": data["pe"],
+                "mp_gpci": data["mp"]
+            }
+            for code, data in localities.items()
+        ],
+        "count": len(localities)
+    }
+
+@api_router.get("/fee-schedule/stats")
+async def fee_schedule_stats(user: dict = Depends(get_current_user)):
+    """Get statistics about the fee schedule database"""
+    categories = {}
+    for code, data in CPT_CODES_DATABASE.items():
+        cat = data.get("category", "Unknown")
+        if cat not in categories:
+            categories[cat] = 0
+        categories[cat] += 1
+    
+    return {
+        "total_cpt_codes": len(CPT_CODES_DATABASE),
+        "total_localities": len(GPCI_LOCALITIES),
+        "conversion_factor_2024": CONVERSION_FACTOR_2024,
+        "categories": categories,
+        "category_counts": [
+            {"category": cat, "count": count}
+            for cat, count in sorted(categories.items(), key=lambda x: -x[1])
+        ]
+    }
 
 # ==================== ROOT ENDPOINT ====================
 
