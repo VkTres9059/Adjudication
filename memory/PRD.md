@@ -1,7 +1,7 @@
 # FletchFlow Claims Adjudication System - PRD
 
 ## Product Overview
-FletchFlow is a scalable, API-first claims adjudication system named after Chevy Chase. It supports multiple lines of coverage (Medical, Dental, Vision, Hearing) with built-in CPT/CDT codes, Medicare fee schedule with GPCI locality adjustments, real X12 EDI parsing, network repricing, prior authorization, and duplicate claim prevention.
+FletchFlow is a scalable, API-first claims adjudication system named after Chevy Chase. It supports multiple lines of coverage (Medical, Dental, Vision, Hearing) with built-in CPT/CDT codes, Medicare fee schedule with GPCI locality adjustments, ACA-compliant preventive care, real X12 EDI parsing, network repricing, prior authorization, and duplicate claim prevention.
 
 ## Core Requirements (from User)
 1. Microsoft MFA for authentication (MSAL scaffolded, JWT mock fallback)
@@ -13,11 +13,12 @@ FletchFlow is a scalable, API-first claims adjudication system named after Chevy
 7. Strict duplicate claim prevention and plan build functionality
 8. New age creative design with good UI
 9. External billing system will be plugged in later (not built)
+10. ACA-compliant preventive coverage with $0 member cost share
 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + MSAL
 - **Backend**: FastAPI + MongoDB + JWT Auth
-- **Database**: MongoDB (users, plans, claims, members, duplicates, prior_authorizations, network_contracts, accumulators, audit_logs)
+- **Database**: MongoDB (users, plans, claims, members, duplicates, prior_authorizations, network_contracts, accumulators, audit_logs, preventive_utilization)
 
 ## What's Been Implemented
 
@@ -32,52 +33,51 @@ FletchFlow is a scalable, API-first claims adjudication system named after Chevy
 - [x] Duplicate claim detection (exact, near, line-level)
 - [x] Reports with claims and eligibility analytics
 - [x] Settings with audit log, system info, role permissions
-- [x] FletchFlow branding (renamed from Javelina)
+- [x] FletchFlow branding (named after Chevy Chase)
 
 ### Phase 2 - Multi-Line Coverage (Complete - March 2026)
 - [x] Medical CPT codes: 189 codes across 7 categories
 - [x] Medicare fee schedule with 87 GPCI localities
-- [x] Dental CDT codes: 79 codes (Diagnostic, Preventive, Restorative, Crown, Endodontics, Periodontics, Prosthodontics, Oral Surgery, Orthodontics)
-- [x] Vision codes: 44 codes (Eye Exam, Refraction, Contact Lens, Lenses, Frames, Special Procedures)
-- [x] Hearing codes: 65 codes (Audiometric Testing, Hearing Aid Services/Devices, Cochlear Implant, Vestibular)
-- [x] Unified Code Database page with tabbed search across all coverage lines
-- [x] Multi-line adjudication engine supporting dental benefit classes, vision allowances, hearing device allowances
+- [x] Dental CDT codes: 79 codes
+- [x] Vision codes: 44 codes
+- [x] Hearing codes: 65 codes
+- [x] Unified Code Database page with tabbed search
+- [x] Multi-line adjudication engine
 
 ### Phase 3 - Advanced Features (Complete - March 2026)
-- [x] Real X12 EDI 834 parser (enrollment) - supports both X12 and pipe-delimited
-- [x] Real X12 EDI 837 parser (claims) - supports both X12 and pipe-delimited
-- [x] X12 EDI 835 generator (payment/remittance) - real X12 format output
+- [x] Real X12 EDI 834/837/835 parsing and generation
 - [x] Network management with provider contracts
-- [x] Network repricing (Medicare vs contracted rates comparison)
-- [x] Prior authorization workflow (create, review, approve/deny/pend)
+- [x] Network repricing (Medicare vs contracted rates)
+- [x] Prior authorization workflow
 - [x] Batch claim processing
-- [x] Coordination of Benefits (COB) - secondary payer calculation
-- [x] Member accumulators (deductible, OOP, annual max tracking per coverage type)
+- [x] Coordination of Benefits (COB)
 
-## Key API Endpoints
-- `POST /api/auth/login` - JWT authentication
-- `POST /api/auth/register` - User registration
-- `GET/POST /api/claims` - Claims CRUD
-- `POST /api/claims/batch` - Batch claim processing
-- `POST /api/claims/{id}/cob` - Coordination of Benefits
-- `GET/POST /api/plans` - Plan management
-- `GET/POST /api/members` - Member management
-- `GET /api/duplicates` - Duplicate detection
-- `GET /api/dental-codes/search` - Dental CDT code search
-- `GET /api/vision-codes/search` - Vision code search
-- `GET /api/hearing-codes/search` - Hearing code search
-- `GET /api/code-database/stats` - All code database stats
-- `GET /api/cpt-codes/search` - Medical CPT code search
-- `GET /api/fee-schedule/stats` - Fee schedule statistics
-- `POST /api/edi/upload-834` - EDI 834 enrollment file upload (X12 + pipe)
-- `POST /api/edi/upload-837` - EDI 837 claims file upload (X12 + pipe)
-- `GET /api/edi/generate-835` - EDI 835 payment file generation (X12 + pipe)
-- `GET/POST /api/network/contracts` - Network contract management
-- `GET /api/network/reprice/{claim_id}` - Network repricing
-- `GET /api/network/summary` - Network savings summary
-- `GET/POST /api/prior-auth` - Prior authorization workflow
-- `POST /api/prior-auth/{id}/decide` - Prior auth decision
-- `GET /api/dashboard/metrics` - Dashboard analytics
+### Phase 4 - Preventive Coverage (Complete - March 2026)
+- [x] 63 ACA-compliant preventive service codes across 7 categories:
+  - Wellness Visits (14): 99381-99387, 99391-99397
+  - Immunizations (15): 90460-90474, CDC vaccine schedule
+  - Cancer Screenings (11): Mammogram, Colonoscopy, Pap Smear, PSA
+  - Preventive Screenings (5): Cholesterol, Diabetes, Hepatitis C, HIV
+  - Women's Preventive (8): Maternity, Contraception, Breastfeeding, Gestational DM
+  - Pediatric Preventive (4): Developmental, Autism, Vision, Hearing screening
+  - Behavioral Counseling (6): Obesity, Tobacco, Alcohol, Depression
+- [x] $0 member cost share when billed as preventive (Z-code + CPT match)
+- [x] Modifier 33 support for preventive designation
+- [x] Split claim logic (preventive + diagnostic secondary dx)
+- [x] Frequency limits engine (annual, 3-year, 10-year, lifetime, per-pregnancy)
+- [x] Age and gender eligibility checks
+- [x] Preventive sits outside deductible (doesn't count toward plan accumulator)
+- [x] Preventive utilization tracking per member
+- [x] Abuse detection (duplicate visits, excess frequency)
+- [x] Plan design: ACA Strict vs Enhanced Preventive in Plan Builder
+- [x] EOB shows "Preventive Service - $0 Member Responsibility"
+- [x] Preventive analytics (PMPM, compliance rate, category breakdown)
+- [x] Frontend: Preventive Services page with Catalog, Analytics, Abuse Detection tabs
+
+## Key Stats
+- **Total Procedure Codes**: 440 (189 Medical + 79 Dental + 44 Vision + 65 Hearing + 63 Preventive)
+- **GPCI Localities**: 87
+- **Coverage Lines**: 4 (Medical, Dental, Vision, Hearing)
 
 ## Remaining / Future Work
 - P1: Configure real Azure AD credentials for MSAL (needs user's Tenant/Client IDs)
