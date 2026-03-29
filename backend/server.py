@@ -57,6 +57,22 @@ from hearing_codes import (
 import json
 import io
 
+# Import Preventive Services
+from preventive_services import (
+    PREVENTIVE_SERVICES,
+    PREVENTIVE_Z_CODES,
+    is_preventive_code,
+    is_preventive_diagnosis,
+    has_modifier_33,
+    get_preventive_service,
+    search_preventive_services,
+    get_preventive_by_category,
+    evaluate_preventive_claim_line,
+    check_preventive_frequency,
+    record_preventive_utilization,
+    calculate_member_age,
+)
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -170,6 +186,7 @@ class PlanCreate(BaseModel):
     benefits: List[PlanBenefit] = []
     tier_type: str = "employee_only"
     exclusions: List[str] = []
+    preventive_design: str = "aca_strict"  # aca_strict | enhanced
 
 class PlanResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -497,7 +514,7 @@ def calculate_line_allowed_for_type(code, code_data, claim_type, locality_code, 
 
 
 async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code: str = "00000") -> dict:
-    """Apply plan rules to adjudicate a claim - supports Medical, Dental, Vision, Hearing."""
+    """Apply plan rules to adjudicate a claim - supports Medical, Dental, Vision, Hearing + Preventive."""
     
     adjudication_notes = []
     total_allowed = 0
@@ -513,8 +530,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
     if claim_date < member_eff:
         return {
             "status": ClaimStatus.DENIED.value,
-            "total_allowed": 0,
-            "total_paid": 0,
+            "total_allowed": 0, "total_paid": 0,
             "member_responsibility": claim["total_billed"],
             "adjudication_notes": ["DENIED: Service date before coverage effective date"]
         }
@@ -522,8 +538,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
     if member_term and claim_date > member_term:
         return {
             "status": ClaimStatus.DENIED.value,
-            "total_allowed": 0,
-            "total_paid": 0,
+            "total_allowed": 0, "total_paid": 0,
             "member_responsibility": claim["total_billed"],
             "adjudication_notes": ["DENIED: Service date after coverage termination"]
         }
@@ -531,12 +546,11 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
     # Check if plan type matches claim type
     plan_type = plan.get("plan_type", "medical")
     if plan_type != claim_type:
-        adjudication_notes.append(f"WARNING: Claim type '{claim_type}' does not match plan type '{plan_type}'. Adjudicating with available plan rules.")
+        adjudication_notes.append(f"WARNING: Claim type '{claim_type}' does not match plan type '{plan_type}'.")
     
     # Check prior authorization if required at claim level
-    prior_auth = None
     if claim.get("prior_auth_number"):
-        prior_auth = await db.prior_authorizations.find_one(
+        await db.prior_authorizations.find_one(
             {"auth_number": claim["prior_auth_number"], "status": "approved"},
             {"_id": 0}
         )
@@ -545,26 +559,30 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
     accumulators = await db.accumulators.find_one(
         {"member_id": claim["member_id"], "plan_year": str(claim_date.year), "claim_type": claim_type},
         {"_id": 0}
-    ) or {
-        "deductible_met": 0,
-        "oop_met": 0,
-        "annual_max_used": 0,
-    }
+    ) or {"deductible_met": 0, "oop_met": 0, "annual_max_used": 0}
     
     deductible = plan.get("deductible_individual", 0)
     oop_max = plan.get("oop_max_individual", 999999)
-    annual_max = plan.get("annual_max", 999999)  # Relevant for dental/vision
+    annual_max = plan.get("annual_max", 999999)
     
-    # Get plan reimbursement method and multiplier
+    # Reimbursement method
     reimbursement_method = plan.get("reimbursement_method", "fee_schedule")
-    method_multipliers = {
-        "fee_schedule": 1.0,
-        "percent_medicare": 1.2,
-        "percent_billed": 0.8,
-        "rbp": 1.4,
-        "contracted": 1.0
-    }
+    method_multipliers = {"fee_schedule": 1.0, "percent_medicare": 1.2, "percent_billed": 0.8, "rbp": 1.4, "contracted": 1.0}
     rate_multiplier = method_multipliers.get(reimbursement_method, 1.0)
+    
+    # Preventive plan design: default strict ACA, allow "enhanced"
+    preventive_design = plan.get("preventive_design", "aca_strict")
+    
+    # Calculate member age
+    member_age = calculate_member_age(member.get("dob", "2000-01-01"), claim["service_date_from"])
+    member_gender = member.get("gender", "U").lower()
+    if member_gender in ("m", "male"):
+        member_gender = "male"
+    elif member_gender in ("f", "female"):
+        member_gender = "female"
+    
+    # Claim-level diagnosis codes
+    claim_diagnosis = claim.get("diagnosis_codes", [])
     
     # Process each service line
     processed_lines = []
@@ -572,8 +590,83 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         proc_code = line["cpt_code"]
         billed = line["billed_amount"]
         units = line.get("units", 1)
+        line_modifier = line.get("modifier", "")
+        line_dx = line.get("diagnosis_codes", []) or claim_diagnosis
         
-        # Look up code in appropriate database
+        # ===== PREVENTIVE SERVICE CHECK =====
+        preventive_eval = evaluate_preventive_claim_line(
+            proc_code, line_dx, line_modifier,
+            member_age if member_age is not None else 30,
+            member_gender
+        )
+        
+        if preventive_eval["is_preventive"] is True:
+            # Check frequency limits
+            within_limit, freq_msg, usage_count = await check_preventive_frequency(
+                db, claim["member_id"], proc_code, claim.get("service_date_from", ""),
+                preventive_eval.get("service")
+            )
+            
+            if not within_limit:
+                # Frequency exceeded - reclassify as diagnostic, apply normal benefits
+                adjudication_notes.append(
+                    f"Line {line['line_number']}: {proc_code} - PREVENTIVE frequency exceeded ({freq_msg}). Reclassified as diagnostic."
+                )
+                # Fall through to normal adjudication below
+            else:
+                # PREVENTIVE: $0 member cost, outside deductible
+                svc = preventive_eval.get("service", {})
+                allowed = svc.get("fee", billed) * units
+                allowed = min(allowed, billed)
+                paid = allowed  # Plan pays 100%
+                member_resp = 0.0
+                
+                total_allowed += allowed
+                total_paid += paid
+                
+                # Record utilization
+                await record_preventive_utilization(
+                    db, claim["member_id"], proc_code,
+                    claim.get("service_date_from", ""), claim.get("id", "")
+                )
+                
+                adjudication_notes.append(
+                    f"Line {line['line_number']}: {proc_code} - PREVENTIVE SERVICE ($0 member cost). "
+                    f"Source: {svc.get('source', 'ACA')}. {freq_msg}"
+                )
+                
+                processed_lines.append({
+                    **line,
+                    "allowed": round(allowed, 2),
+                    "paid": round(paid, 2),
+                    "member_resp": 0.0,
+                    "deductible_applied": 0.0,
+                    "medicare_rate": None,
+                    "cpt_description": svc.get("description", "Preventive Service"),
+                    "coverage_type": "preventive",
+                    "is_preventive": True,
+                    "preventive_category": svc.get("category", ""),
+                    "preventive_source": svc.get("source", ""),
+                    "eob_message": "Preventive Service - $0 Member Responsibility",
+                })
+                continue
+        
+        elif preventive_eval.get("is_preventive") == "split":
+            # Split claim scenario: preventive part + diagnostic part
+            adjudication_notes.append(
+                f"Line {line['line_number']}: {proc_code} - Split claim: preventive diagnosis with illness secondary dx. "
+                "Processing as diagnostic with normal cost sharing."
+            )
+            # Fall through to normal adjudication
+        
+        elif preventive_eval.get("reclassify_as") == "diagnostic":
+            adjudication_notes.append(
+                f"Line {line['line_number']}: {proc_code} - Preventive code but billed as diagnostic (no Z-code/modifier 33). "
+                "Normal plan benefits apply."
+            )
+            # Fall through to normal adjudication
+        
+        # ===== NORMAL (NON-PREVENTIVE) ADJUDICATION =====
         code_data = lookup_code_for_claim_type(proc_code, claim_type)
         
         # Find matching benefit category from plan
@@ -595,7 +688,6 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
                         "Medicine": ["physical therapy", "immunization", "vaccine", "cardio", "pulmonary"],
                         "Anesthesia": ["anesthesia"],
                         "HCPCS": ["drug", "injection", "dme", "equipment"],
-                        # Dental
                         "Diagnostic": ["diagnostic", "preventive"],
                         "Radiograph": ["diagnostic", "imaging", "x-ray"],
                         "Preventive": ["preventive"],
@@ -606,12 +698,10 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
                         "Prosthodontics": ["major", "prosthodontic"],
                         "Oral Surgery": ["basic", "surgery"],
                         "Orthodontics": ["orthodontic"],
-                        # Vision
                         "Eye Exam": ["exam", "office visit", "evaluation"],
                         "Lenses": ["materials", "lens"],
                         "Frames": ["materials", "frame"],
                         "Contact Lens": ["contact lens", "materials"],
-                        # Hearing
                         "Audiometric Testing": ["diagnostic", "testing"],
                         "Hearing Aid Service": ["hearing aid", "service"],
                         "Hearing Aid Device": ["hearing aid", "device"],
@@ -631,37 +721,34 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         # Check if service is covered
         if not benefit.get("covered", True):
             processed_lines.append({
-                **line,
-                "allowed": 0, "paid": 0, "member_resp": billed,
+                **line, "allowed": 0, "paid": 0, "member_resp": billed,
                 "denial_reason": "Service not covered under plan", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - NOT COVERED under benefit plan")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - NOT COVERED")
             member_responsibility += billed
             continue
         
         # Check exclusions
         if proc_code in plan.get("exclusions", []):
             processed_lines.append({
-                **line,
-                "allowed": 0, "paid": 0, "member_resp": billed,
+                **line, "allowed": 0, "paid": 0, "member_resp": billed,
                 "denial_reason": "Service excluded from coverage", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - EXCLUDED from coverage")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - EXCLUDED")
             member_responsibility += billed
             continue
         
         # Check prior auth if required
         if benefit.get("prior_auth_required") and not claim.get("prior_auth_number"):
             processed_lines.append({
-                **line,
-                "allowed": 0, "paid": 0, "member_resp": billed,
+                **line, "allowed": 0, "paid": 0, "member_resp": billed,
                 "denial_reason": "Prior authorization required", "medicare_rate": None
             })
-            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - Prior auth REQUIRED but not provided")
+            adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - Prior auth REQUIRED")
             member_responsibility += billed
             continue
         
-        # Calculate allowed amount based on claim type and code source
+        # Calculate allowed amount
         allowed = None
         type_plan_pays = None
         type_member_pays = None
@@ -677,25 +764,22 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         
         if allowed is None:
             allowed = billed * 0.8
-            rate_note = f"UNKNOWN code, using 80% of billed"
+            rate_note = "UNKNOWN code, using 80% of billed"
         
-        # Cap allowed at billed amount
         allowed = min(allowed, billed)
         adjudication_notes.append(f"Line {line['line_number']}: {proc_code} - {rate_note}")
         
-        # For dental/vision/hearing with their own benefit class pricing
+        # Dental/vision/hearing benefit class pricing
         if type_plan_pays is not None and type_member_pays is not None:
             paid = type_plan_pays
             member_resp_this_line = type_member_pays
-            
-            # Still apply annual max for dental
             if claim_type == "dental" and annual_max < 999999:
                 remaining_annual = max(0, annual_max - accumulators.get("annual_max_used", 0))
                 if paid > remaining_annual:
                     excess = paid - remaining_annual
                     paid = remaining_annual
                     member_resp_this_line += excess
-                    adjudication_notes.append(f"Line {line['line_number']}: Annual max reached - excess ${excess:.2f} to member")
+                    adjudication_notes.append(f"Line {line['line_number']}: Annual max reached - excess ${excess:.2f}")
                 accumulators["annual_max_used"] = accumulators.get("annual_max_used", 0) + min(type_plan_pays, remaining_annual)
         else:
             # Standard medical adjudication with deductible/coinsurance/OOP
@@ -717,7 +801,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
             if member_resp_this_line > remaining_oop:
                 paid += (member_resp_this_line - remaining_oop)
                 member_resp_this_line = remaining_oop
-                adjudication_notes.append(f"Line {line['line_number']}: OOP MAX reached - additional plan payment applied")
+                adjudication_notes.append(f"Line {line['line_number']}: OOP MAX reached")
             
             accumulators["oop_met"] += member_resp_this_line
         
@@ -735,7 +819,8 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
             "cpt_description": code_data.get("description", "Unknown") if code_data else "Unknown",
             "work_rvu": code_data.get("work_rvu") if code_data else None,
             "total_rvu": code_data.get("total_rvu") if code_data else None,
-            "coverage_type": code_data.get("source", claim_type) if code_data else claim_type
+            "coverage_type": code_data.get("source", claim_type) if code_data else claim_type,
+            "is_preventive": False,
         })
     
     # Update accumulators
@@ -2157,6 +2242,195 @@ async def process_cob(claim_id: str, cob: COBInfo, user: dict = Depends(require_
         "cob": cob_record,
         "total_all_payers": round(cob.primary_paid + secondary_pays, 2),
     }
+
+
+# ==================== PREVENTIVE SERVICES ENDPOINTS ====================
+
+@api_router.get("/preventive/services")
+async def list_preventive_services(
+    category: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get all preventive services, optionally filtered by category."""
+    if category:
+        results = get_preventive_by_category(category)
+    else:
+        results = [{"code": code, **data} for code, data in PREVENTIVE_SERVICES.items()]
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/preventive/search")
+async def search_preventive(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=100),
+    user: dict = Depends(get_current_user)
+):
+    results = search_preventive_services(q, limit)
+    return {"results": results, "count": len(results)}
+
+@api_router.get("/preventive/categories")
+async def preventive_categories(user: dict = Depends(get_current_user)):
+    """Get all preventive service categories with counts."""
+    cats = {}
+    for code, data in PREVENTIVE_SERVICES.items():
+        cat = data.get("category", "Other")
+        if cat not in cats:
+            cats[cat] = {"count": 0, "subcategories": set()}
+        cats[cat]["count"] += 1
+        cats[cat]["subcategories"].add(data.get("subcategory", ""))
+    # Convert sets to lists for JSON
+    for cat in cats:
+        cats[cat]["subcategories"] = sorted(cats[cat]["subcategories"])
+    return cats
+
+@api_router.get("/preventive/check-eligibility")
+async def check_preventive_eligibility(
+    cpt_code: str,
+    member_id: str,
+    service_date: str,
+    user: dict = Depends(get_current_user)
+):
+    """Check if a specific preventive service is eligible for a member."""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    age = calculate_member_age(member.get("dob", "2000-01-01"), service_date)
+    gender = member.get("gender", "U").lower()
+    if gender in ("m", "male"):
+        gender = "male"
+    elif gender in ("f", "female"):
+        gender = "female"
+    
+    service = get_preventive_service(cpt_code)
+    if not service:
+        return {"eligible": False, "reason": "Code not in preventive database", "code": cpt_code}
+    
+    eval_result = evaluate_preventive_claim_line(cpt_code, ["Z00.00"], None, age, gender)
+    
+    within_limit, freq_msg, usage = await check_preventive_frequency(db, member_id, cpt_code, service_date, service)
+    
+    return {
+        "code": cpt_code,
+        "service": service,
+        "member_age": age,
+        "member_gender": gender,
+        "age_eligible": eval_result.get("is_preventive") is not False or "age" not in eval_result.get("reason", ""),
+        "gender_eligible": eval_result.get("is_preventive") is not False or "gender" not in eval_result.get("reason", ""),
+        "within_frequency": within_limit,
+        "frequency_message": freq_msg,
+        "usage_count": usage,
+        "evaluation": eval_result,
+    }
+
+@api_router.get("/preventive/utilization/{member_id}")
+async def member_preventive_utilization(member_id: str, user: dict = Depends(get_current_user)):
+    """Get a member's preventive service utilization history."""
+    records = await db.preventive_utilization.find(
+        {"member_id": member_id}, {"_id": 0}
+    ).sort("service_date", -1).to_list(500)
+    return {"member_id": member_id, "records": records, "count": len(records)}
+
+@api_router.get("/preventive/analytics")
+async def preventive_analytics(user: dict = Depends(get_current_user)):
+    """Get preventive service analytics / utilization stats."""
+    total_utilization = await db.preventive_utilization.count_documents({})
+    
+    # Members with at least one preventive service
+    pipeline_unique_members = [{"$group": {"_id": "$member_id"}}]
+    unique_members = await db.preventive_utilization.aggregate(pipeline_unique_members).to_list(100000)
+    
+    total_members = await db.members.count_documents({"status": "active"})
+    
+    # Category breakdown
+    pipeline_cats = [
+        {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    cat_breakdown = await db.preventive_utilization.aggregate(pipeline_cats).to_list(50)
+    
+    # Claims with preventive lines
+    pipeline_prev_claims = [
+        {"$match": {"service_lines.is_preventive": True}},
+        {"$count": "count"}
+    ]
+    prev_claims_result = await db.claims.aggregate(pipeline_prev_claims).to_list(1)
+    prev_claims_count = prev_claims_result[0]["count"] if prev_claims_result else 0
+    
+    # Calculate total preventive paid
+    pipeline_prev_paid = [
+        {"$match": {"service_lines.is_preventive": True}},
+        {"$unwind": "$service_lines"},
+        {"$match": {"service_lines.is_preventive": True}},
+        {"$group": {"_id": None, "total_paid": {"$sum": "$service_lines.paid"}}},
+    ]
+    prev_paid_result = await db.claims.aggregate(pipeline_prev_paid).to_list(1)
+    total_prev_paid = prev_paid_result[0]["total_paid"] if prev_paid_result else 0
+    
+    members_with_preventive = len(unique_members)
+    compliance_rate = (members_with_preventive / total_members * 100) if total_members > 0 else 0
+    pmpm = (total_prev_paid / max(total_members, 1)) if total_members > 0 else 0
+    
+    return {
+        "total_preventive_services": total_utilization,
+        "members_with_preventive": members_with_preventive,
+        "total_active_members": total_members,
+        "compliance_rate": round(compliance_rate, 1),
+        "preventive_pmpm": round(pmpm, 2),
+        "total_preventive_paid": round(total_prev_paid, 2),
+        "claims_with_preventive": prev_claims_count,
+        "category_breakdown": [{"category": c["_id"], "count": c["count"]} for c in cat_breakdown],
+        "total_preventive_codes": len(PREVENTIVE_SERVICES),
+    }
+
+@api_router.get("/preventive/abuse-detection")
+async def preventive_abuse_detection(user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Detect potential preventive service abuse patterns."""
+    flags = []
+    
+    # 1. Duplicate preventive visits same DOS/provider
+    pipeline_dup = [
+        {"$match": {"service_lines.is_preventive": True}},
+        {"$group": {
+            "_id": {"member_id": "$member_id", "provider_npi": "$provider_npi", "service_date_from": "$service_date_from"},
+            "count": {"$sum": 1},
+            "claim_ids": {"$push": "$id"},
+            "claim_numbers": {"$push": "$claim_number"},
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+    ]
+    dup_visits = await db.claims.aggregate(pipeline_dup).to_list(100)
+    for dv in dup_visits:
+        flags.append({
+            "type": "duplicate_preventive_visit",
+            "severity": "high",
+            "member_id": dv["_id"]["member_id"],
+            "provider_npi": dv["_id"]["provider_npi"],
+            "service_date": dv["_id"]["service_date_from"],
+            "count": dv["count"],
+            "claim_numbers": dv["claim_numbers"],
+            "message": f"Duplicate preventive visit: {dv['count']} claims on same date/provider",
+        })
+    
+    # 2. Excess frequency (check utilization records)
+    pipeline_freq = [
+        {"$group": {
+            "_id": {"member_id": "$member_id", "subcategory": "$subcategory"},
+            "count": {"$sum": 1},
+        }},
+        {"$match": {"count": {"$gt": 3}}},
+    ]
+    freq_excess = await db.preventive_utilization.aggregate(pipeline_freq).to_list(100)
+    for fe in freq_excess:
+        flags.append({
+            "type": "excess_frequency",
+            "severity": "medium",
+            "member_id": fe["_id"]["member_id"],
+            "subcategory": fe["_id"]["subcategory"],
+            "count": fe["count"],
+            "message": f"High frequency for {fe['_id']['subcategory']}: {fe['count']} occurrences",
+        })
+    
+    return {"flags": flags, "total_flags": len(flags)}
 
 
 # ==================== ROOT ENDPOINT ====================

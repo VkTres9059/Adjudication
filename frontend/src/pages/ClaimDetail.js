@@ -399,8 +399,16 @@ export default function ClaimDetail() {
               <TableRow key={index} className="table-row">
                 <TableCell>{line.line_number}</TableCell>
                 <TableCell className="font-['JetBrains_Mono'] text-xs">
-                  {line.cpt_code}
-                  {line.modifier && <span className="text-[#8A8A85]">-{line.modifier}</span>}
+                  <div className="flex items-center gap-2">
+                    <span>{line.cpt_code}</span>
+                    {line.modifier && <span className="text-[#8A8A85]">-{line.modifier}</span>}
+                    {line.is_preventive && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-[#4B6E4E]/10 text-[#4B6E4E] text-[10px] font-semibold uppercase tracking-wider">Preventive</span>
+                    )}
+                  </div>
+                  {line.cpt_description && (
+                    <p className="text-[10px] text-[#8A8A85] mt-0.5 font-sans max-w-[200px] truncate">{line.cpt_description}</p>
+                  )}
                 </TableCell>
                 <TableCell>{line.service_date}</TableCell>
                 <TableCell>{line.units}</TableCell>
@@ -413,8 +421,12 @@ export default function ClaimDetail() {
                 <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#4B6E4E]">
                   {formatCurrency(line.paid || 0)}
                 </TableCell>
-                <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C9862B]">
-                  {formatCurrency(line.member_resp || 0)}
+                <TableCell className="text-right font-['JetBrains_Mono'] text-xs">
+                  {line.is_preventive ? (
+                    <span className="text-[#4B6E4E] font-semibold" data-testid={`eob-preventive-${line.line_number}`}>$0.00</span>
+                  ) : (
+                    <span className="text-[#C9862B]">{formatCurrency(line.member_resp || 0)}</span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

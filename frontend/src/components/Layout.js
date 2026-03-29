@@ -17,6 +17,7 @@ import {
   Shield,
   Globe,
   Database,
+  Heart,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ const navigation = [
   { name: 'Plans', href: '/plans', icon: Building2 },
   { name: 'Members', href: '/members', icon: Users },
   { name: 'Prior Auth', href: '/prior-auth', icon: Shield },
+  { name: 'Preventive', href: '/preventive', icon: Heart },
   { name: 'Network', href: '/network', icon: Globe },
   { name: 'Code Database', href: '/code-database', icon: Database },
   { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },

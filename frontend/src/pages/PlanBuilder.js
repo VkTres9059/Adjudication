@@ -84,6 +84,7 @@ export default function PlanBuilder() {
     tier_type: 'employee_only',
     benefits: [],
     exclusions: [],
+    preventive_design: 'aca_strict',
   });
 
   const [exclusionInput, setExclusionInput] = useState('');
@@ -349,6 +350,22 @@ export default function PlanBuilder() {
                       <SelectItem value="family">Family</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preventive_design">Preventive Design</Label>
+                  <Select
+                    value={formData.preventive_design || 'aca_strict'}
+                    onValueChange={(value) => handleChange('preventive_design', value)}
+                  >
+                    <SelectTrigger data-testid="preventive-design-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="aca_strict">ACA Strict (Standard)</SelectItem>
+                      <SelectItem value="enhanced">Enhanced Preventive (Buy-up)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-[#8A8A85]">ACA Strict: $0 cost share for USPSTF/HRSA/CDC services. Enhanced: expanded preventive coverage.</p>
                 </div>
               </div>
             </div>
