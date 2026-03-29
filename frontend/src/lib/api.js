@@ -68,6 +68,9 @@ export const membersAPI = {
   ageOutAlerts: () => api.get('/members/eligibility/age-out-alerts'),
   auditTrail: (memberId) => api.get(`/members/${memberId}/audit-trail`),
   processPendingEligibility: () => api.post('/claims/process-pending-eligibility'),
+  accumulators: (memberId) => api.get(`/members/${memberId}/accumulators`),
+  claimsHistory: (memberId) => api.get(`/members/${memberId}/claims-history`),
+  dependents: (memberId) => api.get(`/members/${memberId}/dependents`),
 };
 
 export const claimsAPI = {

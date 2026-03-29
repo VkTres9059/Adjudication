@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { membersAPI, plansAPI, hourBankAPI } from '../lib/api';
+import { membersAPI, plansAPI, hourBankAPI, claimsAPI } from '../lib/api';
 import api from '../lib/api';
 import { toast } from 'sonner';
 import {
@@ -19,11 +19,17 @@ import {
   ShieldAlert,
   ScrollText,
   ArrowRight,
+  ArrowLeft,
   X,
   Timer,
   TrendingDown,
   TrendingUp,
   Minus,
+  Activity,
+  Heart,
+  Shield,
+  Eye,
+  UserCheck,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -63,6 +69,13 @@ export default function Members() {
   // Hour bank state
   const [hourBankData, setHourBankData] = useState(null);
   const [hourBankLoading, setHourBankLoading] = useState(false);
+
+  // 360 view states
+  const [accumulators, setAccumulators] = useState(null);
+  const [claimsHistory, setClaimsHistory] = useState([]);
+  const [dependentsData, setDependentsData] = useState(null);
+  const [selectedClaimEOB, setSelectedClaimEOB] = useState(null);
+  const [eobLoading, setEobLoading] = useState(false);
 
   // Reconciliation state
   const [reconData, setReconData] = useState(null);
@@ -115,10 +128,19 @@ export default function Members() {
     setSelectedMember(member);
     setShowDetail(true);
     setHourBankData(null);
-    try {
-      const res = await membersAPI.auditTrail(member.member_id);
-      setAuditTrail(res.data);
-    } catch { setAuditTrail([]); }
+    setAccumulators(null);
+    setClaimsHistory([]);
+    setDependentsData(null);
+    setSelectedClaimEOB(null);
+    // Load all 360 data in parallel
+    const mid = member.member_id;
+    Promise.all([
+      membersAPI.auditTrail(mid).then(r => setAuditTrail(r.data)).catch(() => setAuditTrail([])),
+      membersAPI.accumulators(mid).then(r => setAccumulators(r.data)).catch(() => setAccumulators(null)),
+      hourBankAPI.getLedger(mid).then(r => setHourBankData(r.data)).catch(() => setHourBankData(null)),
+      membersAPI.claimsHistory(mid).then(r => setClaimsHistory(r.data)).catch(() => setClaimsHistory([])),
+      membersAPI.dependents(mid).then(r => setDependentsData(r.data)).catch(() => setDependentsData(null)),
+    ]);
   };
 
   const fetchHourBank = async (memberId) => {
@@ -188,6 +210,48 @@ export default function Members() {
   };
 
   const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v || 0);
+
+  const loadClaimEOB = async (claimId) => {
+    setEobLoading(true);
+    try {
+      const res = await claimsAPI.get(claimId);
+      setSelectedClaimEOB(res.data);
+    } catch { toast.error('Failed to load claim detail'); }
+    finally { setEobLoading(false); }
+  };
+
+  const AccumBar = ({ label, used, max, color = '#1A3636', icon: Icon }) => {
+    const pct = max > 0 ? Math.min((used / max) * 100, 100) : 0;
+    return (
+      <div className="h-[56px]" data-testid={`accum-${label.toLowerCase().replace(/[^a-z]/g, '-')}`}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5">
+            {Icon && <Icon className="h-3 w-3" style={{ color }} />}
+            <span className="text-[10px] uppercase tracking-wider text-[#8A8A85]">{label}</span>
+          </div>
+          <span className="text-[10px] font-['JetBrains_Mono'] tabular-nums text-[#64645F]">{fmt(used)} / {fmt(max)}</span>
+        </div>
+        <div className="h-2 bg-[#E2E2DF] rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${pct}%`, backgroundColor: pct > 80 ? '#C24A3B' : pct > 50 ? '#C9862B' : color }}
+          />
+        </div>
+        <div className="flex justify-end mt-0.5">
+          <span className="text-[9px] tabular-nums text-[#8A8A85]">{pct.toFixed(0)}%</span>
+        </div>
+      </div>
+    );
+  };
+
+  const StatusBadge = ({ status }) => {
+    const cls = status === 'approved' ? 'badge-approved' :
+                status === 'denied' ? 'bg-[#C24A3B] text-white border-0' :
+                status === 'pending_review' ? 'bg-[#C9862B] text-white border-0' :
+                status === 'duplicate' ? 'bg-[#5C2D91] text-white border-0' :
+                'bg-[#F0F0EA] text-[#64645F] border-0';
+    return <Badge className={`${cls} text-[10px]`}>{status?.replace(/_/g, ' ')}</Badge>;
+  };
 
   const AUDIT_ICONS = {
     member_added: UserPlus,
@@ -513,75 +577,343 @@ export default function Members() {
         </DialogContent>
       </Dialog>
 
-      {/* MEMBER DETAIL + AUDIT TRAIL */}
-      <Dialog open={showDetail} onOpenChange={setShowDetail}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      {/* MEMBER 360 DETAIL VIEW */}
+      <Dialog open={showDetail} onOpenChange={(open) => { setShowDetail(open); if (!open) setSelectedClaimEOB(null); }}>
+        <DialogContent className="max-w-5xl max-h-[92vh] overflow-hidden flex flex-col p-0">
           {selectedMember && (
             <>
-              <DialogHeader>
-                <DialogTitle className="font-['Outfit'] text-xl">{selectedMember.first_name} {selectedMember.last_name}</DialogTitle>
-                <DialogDescription>Member ID: {selectedMember.member_id} | {selectedMember.relationship} | {selectedMember.status}</DialogDescription>
-              </DialogHeader>
+              {/* ─── STATIC HEADER: Never moves when tabs change ─── */}
+              <div className="flex-shrink-0 border-b border-[#E2E2DF] p-5 pb-4 bg-white" data-testid="member-360-header">
+                {/* Row 1: Name + Status + Hour Bank inline */}
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-xl font-semibold text-[#1C1C1A] font-['Outfit']" data-testid="member-360-name">
+                        {selectedMember.first_name} {selectedMember.last_name}
+                      </h2>
+                      <Badge className={selectedMember.status === 'active' ? 'badge-approved' : selectedMember.status === 'termed_insufficient_hours' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' : 'bg-[#F0F0EA] text-[#8A8A85] border-0 text-[10px]'} data-testid="member-360-status">
+                        {selectedMember.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-[#8A8A85] mt-0.5">
+                      <span className="font-['JetBrains_Mono']">{selectedMember.member_id}</span>
+                      <span className="mx-1.5">|</span>{selectedMember.relationship}
+                      <span className="mx-1.5">|</span>DOB: {selectedMember.dob}
+                      <span className="mx-1.5">|</span>Eff: {selectedMember.effective_date}
+                      {selectedMember.termination_date && <><span className="mx-1.5">|</span>Term: {selectedMember.termination_date}</>}
+                    </p>
+                  </div>
+                  {/* Hour Bank Status Chip */}
+                  <div className="flex-shrink-0" data-testid="header-hour-bank-status">
+                    {hourBankData ? (
+                      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+                        hourBankData.at_risk ? 'bg-[#FFF5F5] border-[#C24A3B]/30' :
+                        hourBankData.total_balance > 0 ? 'bg-[#F0F7F1] border-[#4B6E4E]/30' :
+                        'bg-[#F7F7F4] border-[#E2E2DF]'
+                      }`}>
+                        <Timer className={`h-3.5 w-3.5 ${hourBankData.at_risk ? 'text-[#C24A3B]' : 'text-[#4B6E4E]'}`} />
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Hour Bank</p>
+                          <p className={`text-sm font-bold tabular-nums ${hourBankData.at_risk ? 'text-[#C24A3B]' : 'text-[#1A3636]'}`}>
+                            {hourBankData.total_balance.toFixed(1)} hrs
+                          </p>
+                        </div>
+                        {hourBankData.at_risk && (
+                          <Badge className="bg-[#C24A3B] text-white border-0 text-[9px] ml-1" data-testid="header-at-risk">Hold</Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#F7F7F4] border border-[#E2E2DF]">
+                        <Timer className="h-3.5 w-3.5 text-[#8A8A85]" />
+                        <span className="text-xs text-[#8A8A85]">No bank</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-                <div className="bg-[#F7F7F4] rounded-lg p-3"><p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">DOB</p><p className="text-sm font-medium">{selectedMember.dob}</p></div>
-                <div className="bg-[#F7F7F4] rounded-lg p-3"><p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Gender</p><p className="text-sm font-medium">{selectedMember.gender}</p></div>
-                <div className="bg-[#F7F7F4] rounded-lg p-3"><p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Effective</p><p className="text-sm font-medium">{selectedMember.effective_date}</p></div>
-                <div className="bg-[#F7F7F4] rounded-lg p-3"><p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Termination</p><p className="text-sm font-medium">{selectedMember.termination_date || '—'}</p></div>
+                {/* Row 2: Financial Accumulators — always visible */}
+                <div className="grid grid-cols-3 gap-4" data-testid="financial-accumulators">
+                  {accumulators ? (
+                    <>
+                      <AccumBar label="Individual Deductible" used={accumulators.individual_deductible.used} max={accumulators.individual_deductible.max} color="#1A3636" icon={Shield} />
+                      <AccumBar label="Family Deductible" used={accumulators.family_deductible.used} max={accumulators.family_deductible.max} color="#4A6FA5" icon={Users} />
+                      <AccumBar label="Out-of-Pocket Max" used={accumulators.oop_max.used} max={accumulators.oop_max.max} color="#C9862B" icon={DollarSign} />
+                    </>
+                  ) : (
+                    <>
+                      {[1,2,3].map(i => (
+                        <div key={i} className="h-[56px] animate-pulse">
+                          <div className="h-2 bg-[#E2E2DF] rounded w-24 mb-2" />
+                          <div className="h-2 bg-[#E2E2DF] rounded-full" />
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
 
-              {/* Member Detail Tabs: Audit Trail + Hour Bank */}
-              <Tabs defaultValue="audit" className="mt-6" onValueChange={(v) => { if (v === 'hour-bank' && !hourBankData) fetchHourBank(selectedMember.member_id); }}>
-                <TabsList className="bg-[#F0F0EA] h-9">
-                  <TabsTrigger value="audit" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-audit">
-                    <ScrollText className="h-3.5 w-3.5 mr-1" />Audit Trail
-                  </TabsTrigger>
-                  <TabsTrigger value="hour-bank" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-hour-bank">
-                    <Timer className="h-3.5 w-3.5 mr-1" />Hour Bank
-                  </TabsTrigger>
-                </TabsList>
+              {/* ─── SCROLLABLE TABS AREA ─── */}
+              <div className="flex-1 overflow-y-auto p-5 pt-3">
+                <Tabs defaultValue="claims-history" className="w-full" onValueChange={(v) => {
+                  if (v === 'hour-bank' && !hourBankData) fetchHourBank(selectedMember.member_id);
+                  if (v !== 'claims-history') setSelectedClaimEOB(null);
+                }}>
+                  <TabsList className="bg-[#F0F0EA] h-9 mb-3">
+                    <TabsTrigger value="claims-history" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-claims">
+                      <FileText className="h-3.5 w-3.5 mr-1" />Claims History
+                    </TabsTrigger>
+                    <TabsTrigger value="dependents" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-dependents">
+                      <Heart className="h-3.5 w-3.5 mr-1" />Family / Dependents
+                    </TabsTrigger>
+                    <TabsTrigger value="hour-bank" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-hour-bank">
+                      <Timer className="h-3.5 w-3.5 mr-1" />Hour Bank
+                    </TabsTrigger>
+                    <TabsTrigger value="audit" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-audit">
+                      <ScrollText className="h-3.5 w-3.5 mr-1" />Audit Trail
+                    </TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="audit" className="mt-3" data-testid="member-audit-trail">
-                  {auditTrail.length === 0 ? (
-                    <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">No audit trail entries</p></div>
-                  ) : (
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                      {auditTrail.map((entry) => {
-                        const Icon = AUDIT_ICONS[entry.action] || FileText;
-                        return (
-                          <div key={entry.id} className="flex items-start gap-3 bg-[#F7F7F4] rounded-lg p-3" data-testid={`audit-entry-${entry.id}`}>
-                            <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-                              entry.action === 'member_retro_terminated' ? 'bg-[#C24A3B]' :
-                              entry.action === 'member_terminated' ? 'bg-[#C9862B]' :
-                              entry.action === 'refund_requested' ? 'bg-[#5C2D91]' :
-                              'bg-[#1A3636]'
-                            }`}>
-                              <Icon className="h-3.5 w-3.5 text-white" />
+                  {/* ═══ CLAIMS HISTORY TAB ═══ */}
+                  <TabsContent value="claims-history" className="mt-0" data-testid="member-claims-history">
+                    {selectedClaimEOB ? (
+                      /* Inline EOB View */
+                      <div className="space-y-3" data-testid="inline-eob">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedClaimEOB(null)} className="text-xs text-[#64645F] -ml-2" data-testid="back-to-claims-btn">
+                          <ArrowLeft className="h-3 w-3 mr-1" />Back to Claims
+                        </Button>
+                        <div className="bg-[#F7F7F4] rounded-xl p-4 border border-[#E2E2DF]">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#1C1C1A] font-['Outfit']">Claim EOB: {selectedClaimEOB.claim_number}</p>
+                              <p className="text-[10px] text-[#8A8A85]">{selectedClaimEOB.provider_name} | {selectedClaimEOB.service_date_from}</p>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-xs font-medium text-[#1C1C1A] capitalize">{entry.action.replace(/_/g, ' ')}</p>
-                                <span className="text-[10px] text-[#8A8A85]">{new Date(entry.timestamp).toLocaleString()}</span>
-                              </div>
-                              {entry.details && (
-                                <p className="text-[10px] text-[#64645F] mt-0.5">
-                                  {entry.details.source && `Source: ${entry.details.source}`}
-                                  {entry.details.effective_date && ` | Effective: ${entry.details.effective_date}`}
-                                  {entry.details.termination_date && ` | Term: ${entry.details.termination_date}`}
-                                  {entry.details.total_recovery && ` | Recovery: ${fmt(entry.details.total_recovery)}`}
-                                  {entry.details.claim_count && ` | Claims: ${entry.details.claim_count}`}
-                                </p>
+                            <div className="flex items-center gap-2">
+                              <StatusBadge status={selectedClaimEOB.status} />
+                              {selectedClaimEOB.eligibility_source && selectedClaimEOB.eligibility_source !== 'standard_hours' && (
+                                <Badge className={
+                                  selectedClaimEOB.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                                  selectedClaimEOB.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                                  selectedClaimEOB.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                                  'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
+                                }>{selectedClaimEOB.eligibility_source?.replace(/_/g, ' ')}</Badge>
                               )}
-                              <p className="text-[10px] text-[#8A8A85]">By: {entry.user_id}</p>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </TabsContent>
+                          <div className="grid grid-cols-3 gap-3 mb-3">
+                            <div className="bg-white rounded-lg p-2.5 border border-[#E2E2DF] h-[52px]">
+                              <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Billed</p>
+                              <p className="text-sm font-bold font-['JetBrains_Mono'] tabular-nums">{fmt(selectedClaimEOB.total_billed)}</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-2.5 border border-[#E2E2DF] h-[52px]">
+                              <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Allowed / Paid</p>
+                              <p className="text-sm font-bold font-['JetBrains_Mono'] tabular-nums text-[#4B6E4E]">{fmt(selectedClaimEOB.total_paid)}</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-2.5 border border-[#E2E2DF] h-[52px]">
+                              <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Member Resp</p>
+                              <p className="text-sm font-bold font-['JetBrains_Mono'] tabular-nums text-[#C9862B]">{fmt(selectedClaimEOB.member_responsibility)}</p>
+                            </div>
+                          </div>
+                          {/* Service Lines */}
+                          {selectedClaimEOB.service_lines?.length > 0 && (
+                            <Table>
+                              <TableHeader><TableRow className="border-[#E2E2DF]">
+                                <TableHead className="text-[10px]">CPT</TableHead>
+                                <TableHead className="text-[10px]">Description</TableHead>
+                                <TableHead className="text-right text-[10px]">Billed</TableHead>
+                                <TableHead className="text-right text-[10px]">Allowed</TableHead>
+                                <TableHead className="text-right text-[10px]">Paid</TableHead>
+                              </TableRow></TableHeader>
+                              <TableBody>
+                                {selectedClaimEOB.service_lines.map((sl, i) => (
+                                  <TableRow key={i} className="h-[36px]">
+                                    <TableCell className="font-['JetBrains_Mono'] text-xs">{sl.cpt_code}</TableCell>
+                                    <TableCell className="text-xs truncate max-w-[180px]">{sl.description || '—'}</TableCell>
+                                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{fmt(sl.billed_amount)}</TableCell>
+                                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{fmt(sl.allowed_amount)}</TableCell>
+                                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#4B6E4E]">{fmt(sl.paid_amount)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          )}
+                          {/* Adjudication Notes */}
+                          {selectedClaimEOB.adjudication_notes?.length > 0 && (
+                            <div className="mt-3 bg-white rounded-lg p-3 border border-[#E2E2DF]">
+                              <p className="text-[10px] uppercase tracking-wider text-[#8A8A85] mb-1.5">Adjudication Notes</p>
+                              {selectedClaimEOB.adjudication_notes.map((n, i) => (
+                                <p key={i} className="text-xs text-[#64645F] leading-relaxed">{n}</p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Claims List */
+                      <>
+                        {claimsHistory.length === 0 ? (
+                          <div className="bg-[#F7F7F4] rounded-lg p-8 text-center">
+                            <FileText className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+                            <p className="text-sm text-[#8A8A85]">No claims history for this member</p>
+                          </div>
+                        ) : (
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="border-[#E2E2DF]">
+                                <TableHead>Claim #</TableHead>
+                                <TableHead>Service Date</TableHead>
+                                <TableHead>Provider</TableHead>
+                                <TableHead>CPT Codes</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Source</TableHead>
+                                <TableHead className="text-right">Billed</TableHead>
+                                <TableHead className="text-right">Paid</TableHead>
+                                <TableHead className="w-[32px]"></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {claimsHistory.map((c) => (
+                                <TableRow
+                                  key={c.id}
+                                  className="table-row h-[44px] hover:bg-[#F7F7F4] cursor-pointer transition-colors"
+                                  onClick={() => loadClaimEOB(c.id)}
+                                  data-testid={`claim-history-row-${c.id}`}
+                                >
+                                  <TableCell className="font-['JetBrains_Mono'] text-xs">{c.claim_number}</TableCell>
+                                  <TableCell className="text-xs tabular-nums">{c.service_date}</TableCell>
+                                  <TableCell className="text-xs truncate max-w-[120px]">{c.provider_name || '—'}</TableCell>
+                                  <TableCell className="text-xs font-['JetBrains_Mono']">{c.cpt_codes?.join(', ') || '—'}</TableCell>
+                                  <TableCell><StatusBadge status={c.status} /></TableCell>
+                                  <TableCell>
+                                    {c.eligibility_source && c.eligibility_source !== 'standard_hours' ? (
+                                      <Badge className={
+                                        c.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                                        c.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                                        c.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                                        'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
+                                      }>{c.eligibility_source?.replace(/_/g, ' ')}</Badge>
+                                    ) : <span className="text-[10px] text-[#8A8A85]">—</span>}
+                                  </TableCell>
+                                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{fmt(c.total_billed)}</TableCell>
+                                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#4B6E4E]">{fmt(c.total_paid)}</TableCell>
+                                  <TableCell><Eye className="h-3.5 w-3.5 text-[#8A8A85]" /></TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
+                      </>
+                    )}
+                  </TabsContent>
 
-                <TabsContent value="hour-bank" className="mt-3" data-testid="member-hour-bank">
+                  {/* ═══ FAMILY / DEPENDENTS TAB ═══ */}
+                  <TabsContent value="dependents" className="mt-0" data-testid="member-dependents">
+                    {!dependentsData ? (
+                      <div className="bg-[#F7F7F4] rounded-lg p-8 text-center">
+                        <Users className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+                        <p className="text-sm text-[#8A8A85]">Loading family data...</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Subscriber card */}
+                        <div className="bg-[#F0F7F1] border border-[#4B6E4E]/20 rounded-xl p-4" data-testid="subscriber-card">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-[#4B6E4E] flex items-center justify-center">
+                              <UserCheck className="h-4 w-4 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-[#1C1C1A]">{dependentsData.subscriber.first_name} {dependentsData.subscriber.last_name}</p>
+                                <Badge className="bg-[#4B6E4E] text-white border-0 text-[9px]">Subscriber</Badge>
+                                <Badge className={dependentsData.subscriber.status === 'active' ? 'badge-approved text-[9px]' : 'bg-[#F0F0EA] text-[#8A8A85] border-0 text-[9px]'}>{dependentsData.subscriber.status}</Badge>
+                              </div>
+                              <p className="text-[10px] text-[#64645F]">
+                                <span className="font-['JetBrains_Mono']">{dependentsData.subscriber.member_id}</span>
+                                <span className="mx-1">|</span>DOB: {dependentsData.subscriber.dob}
+                                <span className="mx-1">|</span>Eff: {dependentsData.subscriber.effective_date}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] text-[#8A8A85]">Household Size</p>
+                              <p className="text-lg font-bold tabular-nums text-[#1A3636]">{dependentsData.household_size}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Dependents list */}
+                        {dependentsData.dependents.length === 0 ? (
+                          <div className="bg-[#F7F7F4] rounded-lg p-6 text-center">
+                            <p className="text-sm text-[#8A8A85]">No dependents in this household</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {dependentsData.dependents.map((dep) => (
+                              <div key={dep.member_id} className="flex items-center gap-3 bg-[#F7F7F4] rounded-lg p-3 h-[56px]" data-testid={`dependent-row-${dep.member_id}`}>
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                  dep.relationship === 'spouse' ? 'bg-[#4A6FA5]' :
+                                  dep.relationship === 'child' ? 'bg-[#C9862B]' :
+                                  'bg-[#8A8A85]'
+                                }`}>
+                                  <Heart className="h-3.5 w-3.5 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-[#1C1C1A]">{dep.first_name} {dep.last_name}</p>
+                                    <Badge className="bg-[#F0F0EA] text-[#64645F] border-0 text-[9px] capitalize">{dep.relationship}</Badge>
+                                    <Badge className={dep.status === 'active' ? 'badge-approved text-[9px]' : 'bg-[#F0F0EA] text-[#8A8A85] border-0 text-[9px]'}>{dep.status}</Badge>
+                                  </div>
+                                  <p className="text-[10px] text-[#8A8A85]">
+                                    <span className="font-['JetBrains_Mono']">{dep.member_id}</span>
+                                    <span className="mx-1">|</span>DOB: {dep.dob}
+                                  </p>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <p className="text-[10px] text-[#8A8A85]">Effective</p>
+                                  <p className="text-xs font-medium tabular-nums">{dep.effective_date}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Cross-Accumulation: Family Deductible Contributions */}
+                        {accumulators?.family_deductible?.contributions?.length > 0 && (
+                          <div className="bg-white rounded-xl border border-[#E2E2DF] p-4" data-testid="family-cross-accumulation">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Activity className="h-4 w-4 text-[#4A6FA5]" />
+                              <p className="text-xs font-medium text-[#1C1C1A]">Family Deductible Cross-Accumulation</p>
+                              <span className="text-[10px] text-[#8A8A85] ml-auto font-['JetBrains_Mono'] tabular-nums">
+                                {fmt(accumulators.family_deductible.used)} / {fmt(accumulators.family_deductible.max)}
+                              </span>
+                            </div>
+                            <div className="h-3 bg-[#E2E2DF] rounded-full overflow-hidden mb-3">
+                              <div
+                                className="h-full rounded-full bg-[#4A6FA5] transition-all duration-500"
+                                style={{ width: `${accumulators.family_deductible.max > 0 ? Math.min((accumulators.family_deductible.used / accumulators.family_deductible.max) * 100, 100) : 0}%` }}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              {accumulators.family_deductible.contributions.map((c) => {
+                                const pct = accumulators.family_deductible.max > 0 ? (c.contribution / accumulators.family_deductible.max) * 100 : 0;
+                                return (
+                                  <div key={c.member_id} className="flex items-center gap-2 h-[28px]" data-testid={`contrib-${c.member_id}`}>
+                                    <span className="text-xs w-28 truncate">{c.name}</span>
+                                    <Badge className="bg-[#F0F0EA] text-[#64645F] border-0 text-[9px] capitalize w-16 justify-center">{c.relationship}</Badge>
+                                    <div className="flex-1 h-1.5 bg-[#E2E2DF] rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full bg-[#4A6FA5]" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <span className="text-[10px] font-['JetBrains_Mono'] tabular-nums w-14 text-right">{fmt(c.contribution)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {/* ═══ HOUR BANK TAB ═══ */}
+                  <TabsContent value="hour-bank" className="mt-0" data-testid="member-hour-bank">
                   {hourBankLoading ? (
                     <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">Loading hour bank...</p></div>
                   ) : hourBankData ? (
@@ -683,23 +1015,11 @@ export default function Members() {
                         <div className="flex items-end gap-2">
                           <div className="flex-1 space-y-1">
                             <Label className="text-[10px]">Hours</Label>
-                            <Input
-                              type="number"
-                              step="0.5"
-                              placeholder="e.g. 8.0"
-                              className="input-field h-8 text-xs"
-                              data-testid="manual-hours-input"
-                              id="manual-hours"
-                            />
+                            <Input type="number" step="0.5" placeholder="e.g. 8.0" className="input-field h-8 text-xs" data-testid="manual-hours-input" id="manual-hours" />
                           </div>
                           <div className="flex-[2] space-y-1">
                             <Label className="text-[10px]">Description</Label>
-                            <Input
-                              placeholder="Reason for adjustment"
-                              className="input-field h-8 text-xs"
-                              data-testid="manual-desc-input"
-                              id="manual-desc"
-                            />
+                            <Input placeholder="Reason for adjustment" className="input-field h-8 text-xs" data-testid="manual-desc-input" id="manual-desc" />
                           </div>
                           <Button
                             onClick={async () => {
@@ -775,11 +1095,53 @@ export default function Members() {
                   ) : (
                     <div className="bg-[#F7F7F4] rounded-lg p-6 text-center">
                       <Timer className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
-                      <p className="text-sm text-[#8A8A85]">Click to load hour bank data</p>
+                      <p className="text-sm text-[#8A8A85]">No hour bank data available</p>
                     </div>
                   )}
-                </TabsContent>
-              </Tabs>
+                  </TabsContent>
+
+                  {/* ═══ AUDIT TRAIL TAB ═══ */}
+                  <TabsContent value="audit" className="mt-0" data-testid="member-audit-trail">
+                    {auditTrail.length === 0 ? (
+                      <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">No audit trail entries</p></div>
+                    ) : (
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                        {auditTrail.map((entry) => {
+                          const Icon = AUDIT_ICONS[entry.action] || FileText;
+                          return (
+                            <div key={entry.id} className="flex items-start gap-3 bg-[#F7F7F4] rounded-lg p-3" data-testid={`audit-entry-${entry.id}`}>
+                              <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                                entry.action === 'member_retro_terminated' ? 'bg-[#C24A3B]' :
+                                entry.action === 'member_terminated' ? 'bg-[#C9862B]' :
+                                entry.action === 'refund_requested' ? 'bg-[#5C2D91]' :
+                                'bg-[#1A3636]'
+                              }`}>
+                                <Icon className="h-3.5 w-3.5 text-white" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-medium text-[#1C1C1A] capitalize">{entry.action.replace(/_/g, ' ')}</p>
+                                  <span className="text-[10px] text-[#8A8A85]">{new Date(entry.timestamp).toLocaleString()}</span>
+                                </div>
+                                {entry.details && (
+                                  <p className="text-[10px] text-[#64645F] mt-0.5">
+                                    {entry.details.source && `Source: ${entry.details.source}`}
+                                    {entry.details.effective_date && ` | Effective: ${entry.details.effective_date}`}
+                                    {entry.details.termination_date && ` | Term: ${entry.details.termination_date}`}
+                                    {entry.details.total_recovery && ` | Recovery: ${fmt(entry.details.total_recovery)}`}
+                                    {entry.details.claim_count && ` | Claims: ${entry.details.claim_count}`}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-[#8A8A85]">By: {entry.user_id}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </div>
             </>
           )}
         </DialogContent>
