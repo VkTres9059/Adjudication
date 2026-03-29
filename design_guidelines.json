@@ -1,0 +1,131 @@
+{
+  "theme_and_archetype": {
+    "domain": "Healthcare Claims Adjudication & Administration",
+    "theme": "LIGHT",
+    "archetype": "Archetype 1 (Organic & Earthy)",
+    "reasoning": "Healthcare and financial applications require trust, clarity, and calm. Adjudicators process thousands of claims daily, so the UI must be grounded and reduce eye strain. We avoid sterile hospital blues and opt for warm sand/stone off-whites, deep forest greens, and terracotta for alerts to create a modern, human-centric but highly functional 'control room'."
+  },
+  "typography": {
+    "fonts": {
+      "heading": "'Outfit', sans-serif",
+      "body": "'Manrope', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-semibold",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-sm md:text-base leading-relaxed",
+      "small": "text-xs md:text-sm",
+      "mono": "text-[13px] md:text-sm tracking-tight"
+    },
+    "rules": [
+      "No 'Inter' or generic sans for headings. Use Outfit for a structured, modern age look.",
+      "Headings over 32px must use tracking-tight.",
+      "Overlines/labels must be uppercase, text-xs, tracking-[0.2em] font-medium.",
+      "EDI, CPT, DRG, and claim IDs must use JetBrains Mono for strict alignment and instant recognition."
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#F7F7F4",
+      "surface": "#FFFFFF",
+      "surface_alt": "#F0F0EA"
+    },
+    "text": {
+      "primary": "#1C1C1A",
+      "secondary": "#64645F",
+      "inverse": "#FFFFFF",
+      "muted": "#8A8A85"
+    },
+    "brand": {
+      "primary": "#1A3636",
+      "primary_hover": "#2A4B4B",
+      "secondary": "#8E9F85",
+      "secondary_hover": "#A2B399"
+    },
+    "status": {
+      "danger": "#C24A3B",
+      "danger_bg": "#FBEAE7",
+      "warning": "#C9862B",
+      "warning_bg": "#FDF3E1",
+      "success": "#4B6E4E",
+      "success_bg": "#EDF2EE",
+      "info": "#4A6FA5",
+      "info_bg": "#EEF3F9"
+    },
+    "border": {
+      "default": "#E2E2DF",
+      "focus": "#1A3636"
+    }
+  },
+  "spacing_and_layout": {
+    "grid_mode": "MODE B: THE 'CONTROL ROOM' GRID",
+    "strategy": [
+      "Use strict grid hierarchy for high data density (grid-cols-1 md:grid-cols-3 lg:grid-cols-4).",
+      "Tight gaps: gap-4 or gap-6.",
+      "Generous padding inside containers: p-6 or p-8.",
+      "Every pixel utilized: use h-full on children.",
+      "Cardless feel: Flat white backgrounds against off-white base with a sharp 1px stone border (#E2E2DF) and no default drop shadow."
+    ],
+    "container_classes": "bg-white border border-[#E2E2DF] rounded-xl p-6"
+  },
+  "surfaces_and_micro_themes": {
+    "headers": "Solid background (bg-white) with a hard bottom border (border-b border-[#E2E2DF]). No glassmorphism in this clinical setting to avoid data refraction.",
+    "dashboard_cards": "Flat background (bg-white), 1px subtle border, rounded-xl. Hover state gets a slight lift (-translate-y-1) and a subtle ambient shadow (shadow-[0_8px_30px_rgba(28,28,26,0.06)]).",
+    "alerts_duplicate_claims": "For the crucial duplicate claim detection: Use a 'Grid Borders' tech look or a 'Neumorphic Tactile' variant with high-contrast Terracotta accents to immediately draw the auditor's eye.",
+    "navigation": "Sidebar or top nav using the deep primary color (#1A3636) for high contrast authority, or #F0F0EA for a softer look."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#1A3636] text-white hover:bg-[#2A4B4B] rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+      "secondary": "bg-white border border-[#E2E2DF] text-[#1C1C1A] hover:bg-[#F0F0EA] rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+      "destructive": "bg-[#C24A3B] text-white hover:bg-[#A33C2F] rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+    },
+    "badges": "px-2 py-1 rounded-md text-xs font-semibold uppercase tracking-wider",
+    "inputs": "bg-white border border-[#E2E2DF] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#1A3636]/20 focus:border-[#1A3636] outline-none transition-all",
+    "tables": "Dense rows. Header text-xs uppercase tracking-wider text-[#64645F] bg-[#F7F7F4]. Body rows border-b border-[#E2E2DF] text-sm.",
+    "usage_rules": [
+      "Always use pure HTML + Tailwind for structural/grid layouts.",
+      "Use Shadcn UI logic for complex interactions (Tables, Dropdowns, Datepickers) but override styles to match this earthy/flat theme.",
+      "Never use default HTML <select> or <input type='date'>."
+    ]
+  },
+  "motion_and_interaction": {
+    "hover": "Always explicitly set text color on hover (e.g., hover:bg-[#1A3636] hover:text-white).",
+    "focus": "focus:ring-2 focus:ring-[#8E9F85] focus:outline-none.",
+    "transitions": "Use specific properties: transition-colors duration-200 ease-in-out or transition-transform for card lifts.",
+    "micro_interactions": "Subtle scale-down on active/click state for buttons (active:scale-[0.98])."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "usage": "Use stroke-width 1.5 or 2 for clarity. Icons should match text color contextually."
+  },
+  "testing": {
+    "data_testid_rule": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='duplicate-claim-alert', data-testid='approve-claim-btn')."
+  },
+  "media_and_images": {
+    "urls": [
+      {
+        "category": "Login Background / Hero Abstract",
+        "url": "https://images.unsplash.com/photo-1774390261710-30484c464c4a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwdGVjaG5vbG9neSUyMGFic3RyYWN0fGVufDB8fHx8MTc3NDgxMjkxMnww&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract organic structure with yellow spheres and white casing. Use with a white/gradient overlay for login screen background to evoke new-age medical tech without being generic."
+      },
+      {
+        "category": "Dashboard Placeholder Image / Empty State",
+        "url": "https://images.pexels.com/photos/48604/pexels-photo-48604.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Medical stethoscope and laptop on a white desk. Useful for empty states, 'no claims to review', or onboarding panels."
+      }
+    ],
+    "rules": "Never use placeholder text for images. Only use the provided URLs above."
+  },
+  "instructions_to_main_agent": [
+    "Install 'lucide-react' for icons.",
+    "Install Google Fonts 'Outfit', 'Manrope', and 'JetBrains Mono' via CSS @import or link tags in index.html.",
+    "Ensure all components are strictly aligned to the 'Control Room Grid' with generous internal padding.",
+    "Build the dashboard using pure React (.js/.jsx) + Tailwind CSS + customized Shadcn components.",
+    "Include an explicit 'Duplicate Claim Detection' module with high visibility (using the Terracotta danger color).",
+    "Enforce the 'data-testid' rule rigorously across all buttons, inputs, and claim rows."
+  ]
+}
