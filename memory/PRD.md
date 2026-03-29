@@ -71,6 +71,19 @@ Pages: Dashboard, Claims, ClaimDetail, Plans, Members, Groups, Reports, Settings
 - 100% regression test pass rate (iteration 10)
 - Zero frontend changes required
 
+### Phase 7: Navigation Consolidation (March 2026)
+- Collapsible Categorized Sidebar with 4 groups:
+  - Operations (Dashboard, Examiner Queue, Reports)
+  - Plan Management (Plans, Preventive, Code Database)
+  - Claims Center (Claims, Prior Auth, Duplicates, Fee Schedule)
+  - Network & Groups (Groups, Members, Network)
+- Settings as standalone admin footer item
+- Chevron icons with rotation animation for expand/collapse
+- Auto-expand active category based on current route
+- Sub-menu indentation with left border for visual hierarchy
+- Constant 256px sidebar width (zero-jitter)
+- 100% test pass rate (iteration 11)
+
 ## Backlog
 - P1: Carrier Bordereaux Reporting Module
 - P1: Real X12 EDI parser for 834/837/835
