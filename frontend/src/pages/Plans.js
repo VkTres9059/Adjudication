@@ -42,8 +42,8 @@ export default function Plans() {
     setLoading(true);
     try {
       const params = {};
-      if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.plan_type = typeFilter;
+      if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+      if (typeFilter && typeFilter !== 'all') params.plan_type = typeFilter;
       
       const response = await plansAPI.list(params);
       setPlans(response.data);
@@ -125,7 +125,7 @@ export default function Plans() {
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Status</SelectItem>
+                <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="inactive">Inactive</SelectItem>
                 <SelectItem value="draft">Draft</SelectItem>
@@ -136,7 +136,7 @@ export default function Plans() {
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Types</SelectItem>
+                <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="medical">Medical</SelectItem>
                 <SelectItem value="dental">Dental</SelectItem>
                 <SelectItem value="vision">Vision</SelectItem>

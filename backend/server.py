@@ -358,7 +358,7 @@ async def detect_duplicates(claim_data: dict) -> List[Dict]:
             new_start = datetime.fromisoformat(claim_data["service_date_from"])
             new_end = datetime.fromisoformat(claim_data["service_date_to"])
             date_overlap = (ex_start <= new_end) and (new_start <= ex_end)
-        except:
+        except (ValueError, KeyError):
             pass
         
         # Amount similarity
@@ -673,13 +673,13 @@ async def create_plan(plan_data: PlanCreate, user: dict = Depends(require_roles(
 
 @api_router.get("/plans", response_model=List[PlanResponse])
 async def list_plans(
-    status: Optional[str] = None,
+    plan_status: Optional[str] = None,
     plan_type: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     query = {}
-    if status:
-        query["status"] = status
+    if plan_status:
+        query["status"] = plan_status
     if plan_type:
         query["plan_type"] = plan_type
     
@@ -864,7 +864,7 @@ async def create_claim(claim_data: ClaimCreate, user: dict = Depends(require_rol
 
 @api_router.get("/claims", response_model=List[ClaimResponse])
 async def list_claims(
-    status: Optional[str] = None,
+    claim_status: Optional[str] = None,
     claim_type: Optional[str] = None,
     member_id: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -875,8 +875,8 @@ async def list_claims(
     user: dict = Depends(get_current_user)
 ):
     query = {}
-    if status:
-        query["status"] = status
+    if claim_status:
+        query["status"] = claim_status
     if claim_type:
         query["claim_type"] = claim_type
     if member_id:
@@ -968,13 +968,13 @@ async def adjudicate_claim_action(
 
 @api_router.get("/duplicates", response_model=List[DuplicateAlert])
 async def list_duplicate_alerts(
-    status: Optional[str] = None,
+    alert_status: Optional[str] = None,
     duplicate_type: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     query = {}
-    if status:
-        query["status"] = status
+    if alert_status:
+        query["status"] = alert_status
     if duplicate_type:
         query["duplicate_type"] = duplicate_type
     

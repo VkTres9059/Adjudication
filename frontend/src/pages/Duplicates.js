@@ -62,8 +62,8 @@ export default function Duplicates() {
     setLoading(true);
     try {
       const params = {};
-      if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.duplicate_type = typeFilter;
+      if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+      if (typeFilter && typeFilter !== 'all') params.duplicate_type = typeFilter;
       
       const response = await duplicatesAPI.list(params);
       setAlerts(response.data);
@@ -165,7 +165,7 @@ export default function Duplicates() {
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Status</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending Review</SelectItem>
               <SelectItem value="confirm_duplicate">Confirmed</SelectItem>
               <SelectItem value="not_duplicate">Cleared</SelectItem>
@@ -177,7 +177,7 @@ export default function Duplicates() {
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Types</SelectItem>
+              <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="exact">Exact Match</SelectItem>
               <SelectItem value="near">Near Match</SelectItem>
               <SelectItem value="line_level">Line Level</SelectItem>

@@ -76,9 +76,10 @@ export default function Claims() {
   }, [filters.status, filters.claim_type]);
 
   const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-    if (value) {
-      searchParams.set(key, value);
+    const actualValue = value === 'all' ? '' : value;
+    setFilters((prev) => ({ ...prev, [key]: actualValue }));
+    if (actualValue) {
+      searchParams.set(key, actualValue);
     } else {
       searchParams.delete(key);
     }
@@ -158,7 +159,7 @@ export default function Claims() {
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Status</SelectItem>
+                <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="pended">Pended</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
@@ -174,7 +175,7 @@ export default function Claims() {
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Types</SelectItem>
+                <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="medical">Medical</SelectItem>
                 <SelectItem value="dental">Dental</SelectItem>
                 <SelectItem value="vision">Vision</SelectItem>

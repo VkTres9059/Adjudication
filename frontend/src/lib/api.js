@@ -40,7 +40,12 @@ export const authAPI = {
 };
 
 export const plansAPI = {
-  list: (params) => api.get('/plans', { params }),
+  list: (params) => {
+    const apiParams = {};
+    if (params?.status) apiParams.plan_status = params.status;
+    if (params?.plan_type) apiParams.plan_type = params.plan_type;
+    return api.get('/plans', { params: apiParams });
+  },
   get: (id) => api.get(`/plans/${id}`),
   create: (data) => api.post('/plans', data),
   update: (id, data) => api.put(`/plans/${id}`, data),
@@ -53,14 +58,26 @@ export const membersAPI = {
 };
 
 export const claimsAPI = {
-  list: (params) => api.get('/claims', { params }),
+  list: (params) => {
+    const apiParams = {};
+    if (params?.status) apiParams.claim_status = params.status;
+    if (params?.claim_type) apiParams.claim_type = params.claim_type;
+    if (params?.member_id) apiParams.member_id = params.member_id;
+    if (params?.limit) apiParams.limit = params.limit;
+    return api.get('/claims', { params: apiParams });
+  },
   get: (id) => api.get(`/claims/${id}`),
   create: (data) => api.post('/claims', data),
   adjudicate: (id, action) => api.post(`/claims/${id}/adjudicate`, action),
 };
 
 export const duplicatesAPI = {
-  list: (params) => api.get('/duplicates', { params }),
+  list: (params) => {
+    const apiParams = {};
+    if (params?.status) apiParams.alert_status = params.status;
+    if (params?.duplicate_type) apiParams.duplicate_type = params.duplicate_type;
+    return api.get('/duplicates', { params: apiParams });
+  },
   resolve: (id, resolution) => api.post(`/duplicates/${id}/resolve?resolution=${resolution}`),
 };
 

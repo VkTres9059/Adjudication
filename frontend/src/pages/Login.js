@@ -4,6 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { toast } from 'sonner';
 import { Eye, EyeOff, LogIn, UserPlus } from 'lucide-react';
 
@@ -140,19 +147,20 @@ export default function Login() {
                   <Label htmlFor="role" className="text-sm font-medium text-[#1C1C1A]">
                     Role
                   </Label>
-                  <select
-                    id="role"
-                    name="role"
+                  <Select
                     value={formData.role}
-                    onChange={handleChange}
-                    className="input-field w-full"
-                    data-testid="register-role-select"
+                    onValueChange={(value) => setFormData({ ...formData, role: value })}
                   >
-                    <option value="reviewer">Reviewer</option>
-                    <option value="adjudicator">Adjudicator</option>
-                    <option value="auditor">Auditor</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                    <SelectTrigger data-testid="register-role-select" className="input-field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reviewer">Reviewer</SelectItem>
+                      <SelectItem value="adjudicator">Adjudicator</SelectItem>
+                      <SelectItem value="auditor">Auditor</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
 
