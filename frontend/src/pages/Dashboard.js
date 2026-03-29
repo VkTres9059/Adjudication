@@ -36,6 +36,7 @@ const STATUS_COLORS = {
   pended: '#4A6FA5',
   managerial_hold: '#5C2D91',
   pending_review: '#C24A3B',
+  pending_eligibility: '#C9862B',
 };
 
 export default function Dashboard() {

@@ -47,6 +47,7 @@ const STATUS_CONFIG = {
   pended: { label: 'Pended', icon: Clock, class: 'badge-pended', color: '#4A6FA5' },
   managerial_hold: { label: 'Managerial Hold', icon: Lock, class: 'bg-[#5C2D91] text-white border-0', color: '#5C2D91' },
   pending_review: { label: 'Pending Review', icon: Search, class: 'bg-[#C24A3B] text-white border-0', color: '#C24A3B' },
+  pending_eligibility: { label: 'Pending Eligibility', icon: Clock, class: 'bg-[#C9862B] text-white border-0', color: '#C9862B' },
 };
 
 const HOLD_REASONS = [

@@ -44,6 +44,7 @@ const STATUS_CONFIG = {
   pended: { label: 'Pended', icon: Clock, class: 'badge-pended' },
   managerial_hold: { label: 'On Hold', icon: Lock, class: 'bg-[#5C2D91] text-white border-0' },
   pending_review: { label: 'Pending Review', icon: Lock, class: 'bg-[#C24A3B] text-white border-0' },
+  pending_eligibility: { label: 'Pending Elig.', icon: Clock, class: 'bg-[#C9862B] text-white border-0' },
 };
 
 export default function Claims() {
@@ -166,6 +167,7 @@ export default function Claims() {
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="pended">Pended</SelectItem>
                 <SelectItem value="pending_review">Pending Review</SelectItem>
+                <SelectItem value="pending_eligibility">Pending Eligibility</SelectItem>
                 <SelectItem value="managerial_hold">On Hold</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="denied">Denied</SelectItem>

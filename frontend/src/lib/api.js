@@ -55,6 +55,19 @@ export const membersAPI = {
   list: (params) => api.get('/members', { params }),
   get: (id) => api.get(`/members/${id}`),
   create: (data) => api.post('/members', data),
+  reconciliation: () => api.get('/members/eligibility/reconciliation'),
+  uploadTpaFeed: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/members/eligibility/upload-tpa-feed', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  retroTerms: () => api.get('/members/eligibility/retro-terms'),
+  requestRefund: (memberId) => api.post(`/members/${memberId}/request-refund`),
+  ageOutAlerts: () => api.get('/members/eligibility/age-out-alerts'),
+  auditTrail: (memberId) => api.get(`/members/${memberId}/audit-trail`),
+  processPendingEligibility: () => api.post('/claims/process-pending-eligibility'),
 };
 
 export const claimsAPI = {
