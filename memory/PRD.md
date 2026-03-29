@@ -39,7 +39,15 @@ FletchFlow is a scalable, API-first claims adjudication system named after Chevy
 - [x] Plan attachment to groups: attach/detach plans from group profile
 - [x] MEC 1 plan template per MEC Preventive SOB (Ver. 05232025): $0 deductible, $0 OOP, ACA Strict, 22 benefit categories (10 covered + 12 not-covered), 30 exclusions, reference-based pricing, 50% pre-auth penalty
 - [x] Pulse Analytics per group: PMPM, claims, total paid, surplus bucket, YTD utilization bar
-- [x] Frontend: Group Management page with create modal (tabs: Info/Stop-Loss/SFTP), detail modal with Pulse, Stop-Loss status, SFTP config, Plan Offerings
+
+### Phase 6 - MEC 1 Auto-Adjudication & Financial Reporting (Complete - March 2026)
+- [x] MEC 1 100% Auto-Adjudication: Preventive claims auto-approved at $0 member cost, non-preventive claims auto-denied as "Not a Covered Benefit"
+- [x] MEC-specific Surplus Calculation: Surplus = Total Premium - (MGU Fees + Claims Paid)
+- [x] Group Financials: Total Premium and MGU Fees fields on group creation/edit (new Financials tab)
+- [x] MEC Group UI: "Self-Insured - No Stop-Loss Required" badge, hidden Stop-Loss section, N/A utilization bar
+- [x] Plan cards: "No Stop-Loss" badge on MEC 1 plans, MEC 1 badge on group header
+- [x] Fixed Cost vs. Claims Spend Report: Per-group bar chart + table with MGU Fees, Claims Paid, Surplus, Margin %, MEC/Standard type badges
+- [x] Reports endpoint: GET /api/reports/fixed-cost-vs-claims
 
 ## Key Stats
 - **Total Procedure Codes**: 440 (189 Medical + 79 Dental + 44 Vision + 65 Hearing + 63 Preventive)
@@ -49,8 +57,10 @@ FletchFlow is a scalable, API-first claims adjudication system named after Chevy
 
 ## Remaining / Future Work
 - P1: Configure real Azure AD credentials for MSAL
+- P1: Real X12 EDI parser enhancements
 - P2: Refactor server.py into modular routers
 - P2: External billing system API integration
+- P2: Network repricing vs contracted rates
 - P3: Advanced reporting with CSV/PDF export
-- P3: Carrier Reporting module
+- P3: Carrier Reporting module (Bordereaux)
 - P3: Member self-service portal
