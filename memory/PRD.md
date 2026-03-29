@@ -1,87 +1,56 @@
 # FletchFlow Claims Adjudication System - PRD
 
 ## Product Overview
-FletchFlow is a scalable, API-first claims adjudication system named after Chevy Chase. It supports multiple lines of coverage (Medical, Dental, Vision, Hearing) with built-in CPT/CDT codes, Medicare fee schedule with GPCI locality adjustments, ACA-compliant preventive care, real X12 EDI parsing, network repricing, prior authorization, and duplicate claim prevention.
-
-## Core Requirements (from User)
-1. Microsoft MFA for authentication (MSAL scaffolded, JWT mock fallback)
-2. Start with Medical coverage, expand to Dental, Vision, Hearing
-3. Accept EDI 834 (eligibility) and 837 (claims) input, generate 835 output
-4. Network APIs for provider contract management and repricing
-5. Basic reporting for claims and eligibility
-6. Built-in medical claims CPT codes and Medicare fee schedule with GPCI locality adjustments
-7. Strict duplicate claim prevention and plan build functionality
-8. New age creative design with good UI
-9. External billing system will be plugged in later (not built)
-10. ACA-compliant preventive coverage with $0 member cost share
+FletchFlow is a scalable, API-first claims adjudication system named after Chevy Chase. Multi-line coverage (Medical, Dental, Vision, Hearing) with ACA-compliant preventive care, real X12 EDI parsing, Group Management with stop-loss/SFTP, MEC 1 plan templates, network repricing, prior authorization, and duplicate claim prevention.
 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + MSAL
 - **Backend**: FastAPI + MongoDB + JWT Auth
-- **Database**: MongoDB (users, plans, claims, members, duplicates, prior_authorizations, network_contracts, accumulators, audit_logs, preventive_utilization)
+- **Database**: MongoDB (users, plans, claims, members, groups, duplicates, prior_authorizations, network_contracts, accumulators, audit_logs, preventive_utilization)
 
 ## What's Been Implemented
 
 ### Phase 1 - Core (Complete)
-- [x] FastAPI backend with MongoDB
-- [x] JWT authentication with RBAC (admin, adjudicator, reviewer, auditor)
-- [x] MSAL scaffolding for Microsoft MFA
-- [x] Dashboard with real-time metrics and charts
-- [x] Claims management (CRUD, adjudication, status tracking)
-- [x] Plan builder with benefit configuration
-- [x] Member management with eligibility tracking
-- [x] Duplicate claim detection (exact, near, line-level)
-- [x] Reports with claims and eligibility analytics
-- [x] Settings with audit log, system info, role permissions
+- [x] FastAPI backend with MongoDB, JWT auth with RBAC
+- [x] Dashboard, Claims, Plans, Members, Duplicates, Reports, Settings
 - [x] FletchFlow branding (named after Chevy Chase)
 
-### Phase 2 - Multi-Line Coverage (Complete - March 2026)
-- [x] Medical CPT codes: 189 codes across 7 categories
-- [x] Medicare fee schedule with 87 GPCI localities
-- [x] Dental CDT codes: 79 codes
-- [x] Vision codes: 44 codes
-- [x] Hearing codes: 65 codes
-- [x] Unified Code Database page with tabbed search
-- [x] Multi-line adjudication engine
+### Phase 2 - Multi-Line Coverage (Complete)
+- [x] Medical: 189 CPT codes, 87 GPCI localities, Medicare fee schedule
+- [x] Dental: 79 CDT codes, Vision: 44 codes, Hearing: 65 codes
+- [x] Unified Code Database with tabbed search
 
-### Phase 3 - Advanced Features (Complete - March 2026)
+### Phase 3 - Advanced Features (Complete)
 - [x] Real X12 EDI 834/837/835 parsing and generation
-- [x] Network management with provider contracts
-- [x] Network repricing (Medicare vs contracted rates)
-- [x] Prior authorization workflow
-- [x] Batch claim processing
-- [x] Coordination of Benefits (COB)
+- [x] Network management with provider contracts + repricing
+- [x] Prior authorization workflow, Batch processing, COB
 
-### Phase 4 - Preventive Coverage (Complete - March 2026)
-- [x] 63 ACA-compliant preventive service codes across 7 categories:
-  - Wellness Visits (14): 99381-99387, 99391-99397
-  - Immunizations (15): 90460-90474, CDC vaccine schedule
-  - Cancer Screenings (11): Mammogram, Colonoscopy, Pap Smear, PSA
-  - Preventive Screenings (5): Cholesterol, Diabetes, Hepatitis C, HIV
-  - Women's Preventive (8): Maternity, Contraception, Breastfeeding, Gestational DM
-  - Pediatric Preventive (4): Developmental, Autism, Vision, Hearing screening
-  - Behavioral Counseling (6): Obesity, Tobacco, Alcohol, Depression
-- [x] $0 member cost share when billed as preventive (Z-code + CPT match)
-- [x] Modifier 33 support for preventive designation
-- [x] Split claim logic (preventive + diagnostic secondary dx)
-- [x] Frequency limits engine (annual, 3-year, 10-year, lifetime, per-pregnancy)
-- [x] Age and gender eligibility checks
-- [x] Preventive sits outside deductible (doesn't count toward plan accumulator)
-- [x] Preventive utilization tracking per member
-- [x] Abuse detection (duplicate visits, excess frequency)
-- [x] Plan design: ACA Strict vs Enhanced Preventive in Plan Builder
-- [x] EOB shows "Preventive Service - $0 Member Responsibility"
-- [x] Preventive analytics (PMPM, compliance rate, category breakdown)
-- [x] Frontend: Preventive Services page with Catalog, Analytics, Abuse Detection tabs
+### Phase 4 - Preventive Coverage (Complete)
+- [x] 63 ACA-compliant preventive codes (7 categories: Wellness, Immunizations, Cancer Screening, Preventive Screening, Women's, Pediatric, Behavioral)
+- [x] $0 member cost share, modifier 33, split claim, frequency limits, age/gender eligibility
+- [x] Preventive utilization tracking, abuse detection, analytics (PMPM, compliance)
+- [x] Plan Builder: ACA Strict vs Enhanced Preventive design
+- [x] EOB: "Preventive Service - $0 Member Responsibility"
+
+### Phase 5 - Group Management & MEC 1 (Complete - March 2026)
+- [x] Group Management module: create employer groups (name, Tax ID, contact, address, SIC code, employee count)
+- [x] Stop-Loss configuration: specific deductible, aggregate attachment point, aggregate factor, contract period, laser deductibles
+- [x] SFTP Scheduler: host, schedule (daily/weekly/monthly), file types (834/835), enable/disable
+- [x] Plan attachment to groups: attach/detach plans from group profile
+- [x] MEC 1 plan template per MEC Preventive SOB (Ver. 05232025): $0 deductible, $0 OOP, ACA Strict, 22 benefit categories (10 covered + 12 not-covered), 30 exclusions, reference-based pricing, 50% pre-auth penalty
+- [x] Pulse Analytics per group: PMPM, claims, total paid, surplus bucket, YTD utilization bar
+- [x] Frontend: Group Management page with create modal (tabs: Info/Stop-Loss/SFTP), detail modal with Pulse, Stop-Loss status, SFTP config, Plan Offerings
 
 ## Key Stats
 - **Total Procedure Codes**: 440 (189 Medical + 79 Dental + 44 Vision + 65 Hearing + 63 Preventive)
-- **GPCI Localities**: 87
 - **Coverage Lines**: 4 (Medical, Dental, Vision, Hearing)
+- **GPCI Localities**: 87
+- **Pages**: 14 (Dashboard, Claims, ClaimDetail, Plans, PlanBuilder, Members, Groups, Prior Auth, Preventive, Network, Code Database, Fee Schedule, Duplicates, Reports)
 
 ## Remaining / Future Work
-- P1: Configure real Azure AD credentials for MSAL (needs user's Tenant/Client IDs)
+- P1: Configure real Azure AD credentials for MSAL
 - P2: Refactor server.py into modular routers
 - P2: External billing system API integration
-- P3: Advanced reporting/analytics with export capabilities
-- P3: Member portal for self-service eligibility checks
+- P3: Advanced reporting with CSV/PDF export
+- P3: Carrier Reporting module
+- P3: Member self-service portal
