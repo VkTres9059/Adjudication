@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard,
@@ -13,6 +13,7 @@ import {
   X,
   Building2,
   ChevronDown,
+  ChevronRight,
   Calculator,
   Shield,
   Globe,
@@ -20,6 +21,9 @@ import {
   Heart,
   Briefcase,
   ClipboardList,
+  Activity,
+  Layers,
+  Target,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -31,30 +35,79 @@ import {
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Claims', href: '/claims', icon: FileText },
-  { name: 'Plans', href: '/plans', icon: Building2 },
-  { name: 'Groups', href: '/groups', icon: Briefcase },
-  { name: 'Members', href: '/members', icon: Users },
-  { name: 'Prior Auth', href: '/prior-auth', icon: Shield },
-  { name: 'Preventive', href: '/preventive', icon: Heart },
-  { name: 'Network', href: '/network', icon: Globe },
-  { name: 'Code Database', href: '/code-database', icon: Database },
-  { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },
-  { name: 'Duplicates', href: '/duplicates', icon: AlertTriangle },
-  { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
-  { name: 'Reports', href: '/reports', icon: BarChart3 },
+const sidebarCategories = [
+  {
+    id: 'operations',
+    label: 'Operations',
+    icon: Activity,
+    items: [
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
+      { name: 'Reports', href: '/reports', icon: BarChart3 },
+    ],
+  },
+  {
+    id: 'plan-mgmt',
+    label: 'Plan Management',
+    icon: Layers,
+    items: [
+      { name: 'Plans', href: '/plans', icon: Building2 },
+      { name: 'Preventive', href: '/preventive', icon: Heart },
+      { name: 'Code Database', href: '/code-database', icon: Database },
+    ],
+  },
+  {
+    id: 'claims-center',
+    label: 'Claims Center',
+    icon: Target,
+    items: [
+      { name: 'Claims', href: '/claims', icon: FileText },
+      { name: 'Prior Auth', href: '/prior-auth', icon: Shield },
+      { name: 'Duplicates', href: '/duplicates', icon: AlertTriangle },
+      { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },
+    ],
+  },
+  {
+    id: 'network-groups',
+    label: 'Network & Groups',
+    icon: Globe,
+    items: [
+      { name: 'Groups', href: '/groups', icon: Briefcase },
+      { name: 'Members', href: '/members', icon: Users },
+      { name: 'Network', href: '/network', icon: Globe },
+    ],
+  },
 ];
 
-const adminNav = [
-  { name: 'Settings', href: '/settings', icon: Settings },
-];
+function findCategoryForPath(pathname) {
+  for (const cat of sidebarCategories) {
+    for (const item of cat.items) {
+      if (pathname === item.href || pathname.startsWith(item.href + '/')) {
+        return cat.id;
+      }
+    }
+  }
+  return null;
+}
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [openCategories, setOpenCategories] = useState({});
+
+  // Auto-expand the category that contains the current route
+  useEffect(() => {
+    const activeCatId = findCategoryForPath(location.pathname);
+    if (activeCatId) {
+      setOpenCategories((prev) => ({ ...prev, [activeCatId]: true }));
+    }
+  }, [location.pathname]);
+
+  const toggleCategory = (catId) => {
+    setOpenCategories((prev) => ({ ...prev, [catId]: !prev[catId] }));
+  };
 
   const handleLogout = () => {
     logout();
@@ -84,19 +137,7 @@ export default function Layout() {
     }
   };
 
-  const NavItem = ({ item }) => (
-    <NavLink
-      to={item.href}
-      className={({ isActive }) =>
-        `nav-item ${isActive ? 'nav-item-active' : 'nav-item-inactive'}`
-      }
-      onClick={() => setSidebarOpen(false)}
-      data-testid={`nav-${item.name.toLowerCase()}`}
-    >
-      <item.icon className="h-5 w-5" />
-      <span>{item.name}</span>
-    </NavLink>
-  );
+  const activeCatId = findCategoryForPath(location.pathname);
 
   return (
     <div className="min-h-screen bg-[#F7F7F4]">
@@ -133,22 +174,83 @@ export default function Layout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navigation.map((item) => (
-              <NavItem key={item.name} item={item} />
-            ))}
-            
-            {user?.role === 'admin' && (
-              <>
-                <div className="pt-4 pb-2">
-                  <div className="px-4 text-xs uppercase tracking-[0.2em] text-[#8A8A85] font-medium">
-                    Admin
+          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" data-testid="sidebar-nav">
+            {sidebarCategories.map((cat) => {
+              const isOpen = !!openCategories[cat.id];
+              const isActiveCat = activeCatId === cat.id;
+              const CatIcon = cat.icon;
+
+              return (
+                <div key={cat.id} data-testid={`nav-category-${cat.id}`}>
+                  {/* Category header */}
+                  <button
+                    onClick={() => toggleCategory(cat.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold uppercase tracking-[0.08em] transition-colors cursor-pointer select-none ${
+                      isActiveCat
+                        ? 'text-[#1A3636] bg-[#F0F0EA]'
+                        : 'text-[#8A8A85] hover:text-[#64645F] hover:bg-[#FAFAF8]'
+                    }`}
+                    data-testid={`nav-toggle-${cat.id}`}
+                  >
+                    <CatIcon className="h-4 w-4 flex-shrink-0" />
+                    <span className="flex-1 text-left">{cat.label}</span>
+                    <ChevronRight
+                      className={`h-3.5 w-3.5 flex-shrink-0 transition-transform duration-200 ${
+                        isOpen ? 'rotate-90' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {/* Sub-items */}
+                  <div
+                    className={`overflow-hidden transition-all duration-200 ease-in-out ${
+                      isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+                    }`}
+                  >
+                    <div className="ml-4 pl-3 border-l border-[#E2E2DF] mt-1 mb-2 space-y-0.5">
+                      {cat.items.map((item) => (
+                        <NavLink
+                          key={item.name}
+                          to={item.href}
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                              isActive
+                                ? 'bg-[#1A3636] text-white'
+                                : 'text-[#64645F] hover:bg-[#F0F0EA] hover:text-[#1C1C1A]'
+                            }`
+                          }
+                          onClick={() => setSidebarOpen(false)}
+                          data-testid={`nav-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                        >
+                          <item.icon className="h-4 w-4 flex-shrink-0" />
+                          <span>{item.name}</span>
+                        </NavLink>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                {adminNav.map((item) => (
-                  <NavItem key={item.name} item={item} />
-                ))}
-              </>
+              );
+            })}
+
+            {/* Admin footer item */}
+            {user?.role === 'admin' && (
+              <div className="pt-3 mt-3 border-t border-[#E2E2DF]">
+                <NavLink
+                  to="/settings"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-[#1A3636] text-white'
+                        : 'text-[#64645F] hover:bg-[#F0F0EA] hover:text-[#1C1C1A]'
+                    }`
+                  }
+                  onClick={() => setSidebarOpen(false)}
+                  data-testid="nav-settings"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>Settings</span>
+                </NavLink>
+              </div>
             )}
           </nav>
 
@@ -156,7 +258,7 @@ export default function Layout() {
           <div className="p-4 border-t border-[#E2E2DF]">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button 
+                <button
                   className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-[#F0F0EA] transition-colors"
                   data-testid="user-menu-btn"
                 >
@@ -169,7 +271,11 @@ export default function Layout() {
                     <div className="text-sm font-medium text-[#1C1C1A] truncate">
                       {user?.name}
                     </div>
-                    <div className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold ${getRoleBadgeColor(user?.role)}`}>
+                    <div
+                      className={`inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold ${getRoleBadgeColor(
+                        user?.role
+                      )}`}
+                    >
                       {user?.role}
                     </div>
                   </div>
@@ -182,7 +288,7 @@ export default function Layout() {
                   <p className="text-xs text-[#64645F]">{user?.email}</p>
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={handleLogout}
                   className="text-[#C24A3B] focus:text-[#C24A3B]"
                   data-testid="logout-btn"
