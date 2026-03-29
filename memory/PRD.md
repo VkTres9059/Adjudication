@@ -38,6 +38,10 @@ Build a scalable, API-first claims adjudication system on top of Javelina that s
 - [x] EDI 835 generation (payment output)
 - [x] Dashboard Metrics API
 - [x] Audit Logging
+- [x] **CPT Code Database** - 189 codes across 7 categories (E/M, Surgery, Radiology, Pathology/Lab, Medicine, Anesthesia, HCPCS)
+- [x] **Medicare Fee Schedule** - Work RVU, PE RVU, MP RVU with 2024 Conversion Factor ($33.2875)
+- [x] **GPCI Localities** - 87 localities with geographic cost index adjustments
+- [x] **Medicare Rate Calculator** - Formula: [(Work RVU × Work GPCI) + (PE RVU × PE GPCI) + (MP RVU × MP GPCI)] × CF
 
 ### Frontend (React + Tailwind + Shadcn UI)
 - [x] Login/Register with role selection
@@ -47,15 +51,17 @@ Build a scalable, API-first claims adjudication system on top of Javelina that s
 - [x] Plan Builder with tabs for General, Cost Sharing, Benefits, Exclusions
 - [x] Plans List with status and type filters
 - [x] Members List with search and 834 upload
+- [x] **Fee Schedule Page** - CPT code search, GPCI locality selector, rate calculator
 - [x] Duplicates Review page with resolution workflow
 - [x] Reports page with charts and 835 export
 - [x] Settings page with audit log viewer
 - [x] Responsive sidebar navigation with user profile
 
 ### Adjudication Features
-- [x] Plan-based adjudication logic
+- [x] **Medicare-based pricing** - Uses CPT code RVUs with GPCI adjustments
+- [x] Plan reimbursement methods: fee_schedule (100%), percent_medicare (120%), percent_billed (80%), rbp (140%), contracted (100%)
 - [x] Accumulator tracking (deductible, OOP)
-- [x] Service line level processing
+- [x] Service line level processing with CPT descriptions
 - [x] Automatic duplicate denial for 95%+ matches
 - [x] Pend for review on 50-95% matches
 - [x] Override duplicate capability for authorized users

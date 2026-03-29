@@ -1333,12 +1333,16 @@ async def get_cpt_code_details(code: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="CPT code not found")
     return {"code": code, **cpt_data}
 
-@api_router.get("/cpt-codes/category/{category}")
+@api_router.get("/cpt-codes/category/{category:path}")
 async def get_codes_by_cat(
     category: str,
     user: dict = Depends(get_current_user)
 ):
     """Get all CPT codes in a specific category"""
+    # Handle URL-encoded category names
+    from urllib.parse import unquote
+    category = unquote(category)
+    
     valid_categories = ["E/M", "Anesthesia", "Surgery", "Radiology", "Pathology/Lab", "Medicine", "HCPCS"]
     if category not in valid_categories:
         raise HTTPException(status_code=400, detail=f"Invalid category. Valid: {valid_categories}")
