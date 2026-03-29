@@ -93,7 +93,7 @@ Pages: Dashboard, Claims, ClaimDetail, Plans, Members, Groups, Reports, Settings
 - P3: Member self-service portal
 
 ## DB Collections
-users, plans, claims, members, groups, audit_logs, duplicate_alerts, accumulators, settings, network_contracts, prior_authorizations, clawback_ledger, member_audit_trail, tpa_834_feed, preventive_utilization, gateway_config
+users, plans, claims, members, groups, audit_logs, duplicate_alerts, accumulators, settings, network_contracts, prior_authorizations, clawback_ledger, member_audit_trail, tpa_834_feed, preventive_utilization, gateway_config, hour_bank, hour_bank_entries
 
 ## Test Reports
 - iteration_6.json through iteration_10.json (all 100% pass)
