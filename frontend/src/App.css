@@ -1,34 +1,97 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
-}
+/* Javelina Claims Adjudication System - App Styles */
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
+/* Override any default styles */
+.App {
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
 }
 
-.App-link {
-    color: #61dafb;
+/* Custom utility classes */
+.text-balance {
+    text-wrap: balance;
 }
 
-@keyframes App-logo-spin {
+/* Animation utilities */
+@keyframes fadeIn {
     from {
-        transform: rotate(0deg);
+        opacity: 0;
+        transform: translateY(10px);
     }
     to {
-        transform: rotate(360deg);
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Staggered animations for list items */
+.animate-stagger > * {
+    animation: fadeIn 0.3s ease-out forwards;
+    opacity: 0;
+}
+
+.animate-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.animate-stagger > *:nth-child(2) { animation-delay: 0.1s; }
+.animate-stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.animate-stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.animate-stagger > *:nth-child(5) { animation-delay: 0.25s; }
+
+/* Chart tooltips */
+.recharts-tooltip-wrapper {
+    outline: none !important;
+}
+
+/* Table scroll shadow */
+.table-scroll-shadow {
+    background: 
+        linear-gradient(to right, white 30%, rgba(255, 255, 255, 0)),
+        linear-gradient(to left, white 30%, rgba(255, 255, 255, 0)),
+        linear-gradient(to right, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0)),
+        linear-gradient(to left, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 20px 100%, 20px 100%, 10px 100%, 10px 100%;
+    background-attachment: local, local, scroll, scroll;
+}
+
+/* Loading skeleton */
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        #f0f0ea 25%,
+        #e2e2df 50%,
+        #f0f0ea 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Focus visible styles */
+*:focus-visible {
+    outline: 2px solid #1A3636;
+    outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    
+    .container-card {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #E2E2DF;
     }
 }

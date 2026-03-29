@@ -1,53 +1,104 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "./components/ui/sonner";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Claims from "./pages/Claims";
+import ClaimDetail from "./pages/ClaimDetail";
+import Plans from "./pages/Plans";
+import PlanBuilder from "./pages/PlanBuilder";
+import Members from "./pages/Members";
+import Duplicates from "./pages/Duplicates";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
+import Layout from "./components/Layout";
+import "./App.css";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { user, isAuthenticated, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F7F7F4] flex items-center justify-center">
+        <div className="text-[#64645F]">Loading...</div>
+      </div>
+    );
+  }
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return children;
 };
+
+function AppRoutes() {
+  const { isAuthenticated } = useAuth();
+  
+  return (
+    <Routes>
+      <Route 
+        path="/login" 
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
+      />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="claims" element={<Claims />} />
+        <Route path="claims/:id" element={<ClaimDetail />} />
+        <Route path="plans" element={<Plans />} />
+        <Route 
+          path="plans/new" 
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <PlanBuilder />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="plans/:id/edit" 
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <PlanBuilder />
+            </ProtectedRoute>
+          } 
+        />
+        <Route path="members" element={<Members />} />
+        <Route path="duplicates" element={<Duplicates />} />
+        <Route path="reports" element={<Reports />} />
+        <Route 
+          path="settings" 
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <Settings />
+            </ProtectedRoute>
+          } 
+        />
+      </Route>
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
 
 function App() {
   return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+        <Toaster position="top-right" richColors />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 
