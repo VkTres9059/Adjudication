@@ -107,9 +107,9 @@ export default function Layout() {
           <div className="flex items-center justify-between h-16 px-6 border-b border-[#E2E2DF]">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-[#1A3636] rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm font-['Outfit']">J</span>
+                <span className="text-white font-bold text-sm font-['Outfit']">F</span>
               </div>
-              <span className="text-lg font-semibold text-[#1C1C1A] font-['Outfit']">Javelina</span>
+              <span className="text-lg font-semibold text-[#1C1C1A] font-['Outfit']">FletchFlow</span>
             </div>
             <button
               className="lg:hidden text-[#64645F] hover:text-[#1C1C1A]"

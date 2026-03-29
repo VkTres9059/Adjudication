@@ -42,7 +42,7 @@ JWT_ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # Create the main app
-app = FastAPI(title="Javelina Claims Adjudication System", version="1.0.0")
+app = FastAPI(title="FletchFlow Claims Adjudication System", version="1.0.0")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -1430,7 +1430,7 @@ async def fee_schedule_stats(user: dict = Depends(get_current_user)):
 
 @api_router.get("/")
 async def root():
-    return {"message": "Javelina Claims Adjudication System API", "version": "1.0.0"}
+    return {"message": "FletchFlow Claims Adjudication System API", "version": "1.0.0"}
 
 @api_router.get("/health")
 async def health_check():

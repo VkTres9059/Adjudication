@@ -154,7 +154,7 @@ export default function Settings() {
                 <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">
                   Version
                 </p>
-                <p className="font-['JetBrains_Mono'] text-sm">Javelina v1.0.0</p>
+                <p className="font-['JetBrains_Mono'] text-sm">FletchFlow v1.0.0</p>
               </div>
               <div className="p-4 bg-[#F7F7F4] rounded-lg">
                 <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">

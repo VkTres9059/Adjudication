@@ -59,10 +59,10 @@ export default function Login() {
           {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
             <div className="w-12 h-12 bg-[#1A3636] rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl font-['Outfit']">J</span>
+              <span className="text-white font-bold text-xl font-['Outfit']">F</span>
             </div>
             <div>
-              <h1 className="text-2xl font-semibold text-[#1C1C1A] font-['Outfit']">Javelina</h1>
+              <h1 className="text-2xl font-semibold text-[#1C1C1A] font-['Outfit']">FletchFlow</h1>
               <p className="text-sm text-[#64645F]">Claims Adjudication System</p>
             </div>
           </div>
@@ -242,7 +242,7 @@ export default function Login() {
           
           <p className="text-lg text-white/70 mb-12">
             Automate your claims processing with advanced duplicate detection, 
-            plan-based adjudication, and real-time analytics.
+            Medicare fee schedule pricing, and real-time analytics.
           </p>
 
           <div className="grid grid-cols-2 gap-6">
