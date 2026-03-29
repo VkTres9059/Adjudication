@@ -1,22 +1,30 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { auditAPI } from '../lib/api';
+import api from '../lib/api';
+import { settingsAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
-  Settings as SettingsIcon,
+  Cog,
   Users,
   Shield,
-  History,
+  Save,
   RefreshCw,
+  AlertTriangle,
+  Zap,
+  Search,
+  Lock,
+  Layers,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '../components/ui/tabs';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import {
   Table,
   TableBody,
@@ -25,115 +33,274 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '../components/ui/tabs';
+
+const INITIAL_USER = { name: '', email: '', password: '', role: 'adjudicator' };
 
 export default function Settings() {
-  const { user } = useAuth();
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const fetchAuditLogs = async () => {
-    setLoading(true);
-    try {
-      const response = await auditAPI.list({ limit: 100 });
-      setAuditLogs(response.data);
-    } catch (error) {
-      console.error('Failed to fetch audit logs:', error);
-      toast.error('Failed to load audit logs');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [users, setUsers] = useState([]);
+  const [userForm, setUserForm] = useState(INITIAL_USER);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState({
+    tier1_auto_pilot_limit: 500,
+    tier2_audit_hold_limit: 2500,
+    enabled: true,
+  });
+  const [gatewaySaving, setGatewaySaving] = useState(false);
 
   useEffect(() => {
-    fetchAuditLogs();
+    fetchUsers();
+    fetchGatewayConfig();
   }, []);
 
-  const getActionBadgeClass = (action) => {
-    if (action.includes('approved')) return 'badge-approved';
-    if (action.includes('denied') || action.includes('delete')) return 'badge-denied';
-    if (action.includes('created') || action.includes('register')) return 'badge-pended';
-    return 'bg-[#F0F0EA] text-[#64645F]';
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/users');
+      setUsers(res.data);
+    } catch { toast.error('Failed to load users'); }
+    finally { setLoading(false); }
   };
+
+  const fetchGatewayConfig = async () => {
+    try {
+      const res = await settingsAPI.getGateway();
+      setGatewayConfig(res.data);
+    } catch { /* defaults are fine */ }
+  };
+
+  const createUser = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post('/users', userForm);
+      toast.success('User created');
+      setUserForm(INITIAL_USER);
+      fetchUsers();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to create user'); }
+    finally { setSaving(false); }
+  };
+
+  const saveGateway = async () => {
+    setGatewaySaving(true);
+    try {
+      await settingsAPI.updateGateway(gatewayConfig);
+      toast.success('Adjudication Gateway updated');
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to update gateway'); }
+    finally { setGatewaySaving(false); }
+  };
+
+  const fmt = (v) => `$${Number(v || 0).toLocaleString()}`;
 
   return (
     <div className="space-y-6" data-testid="settings-page">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-semibold text-[#1C1C1A] font-['Outfit'] tracking-tight">
-          Settings
-        </h1>
-        <p className="text-sm text-[#64645F] mt-1">
-          System configuration and audit logs
-        </p>
+        <h1 className="text-2xl sm:text-3xl font-semibold text-[#1C1C1A] font-['Outfit'] tracking-tight">Settings</h1>
+        <p className="text-sm text-[#64645F] mt-1">System configuration, user management, and adjudication gateway</p>
       </div>
 
-      <Tabs defaultValue="audit">
-        <TabsList className="bg-[#F0F0EA] p-1">
-          <TabsTrigger value="audit" data-testid="tab-audit">
-            <History className="h-4 w-4 mr-2" />
-            Audit Log
-          </TabsTrigger>
-          <TabsTrigger value="system" data-testid="tab-system">
-            <SettingsIcon className="h-4 w-4 mr-2" />
-            System
-          </TabsTrigger>
-          <TabsTrigger value="roles" data-testid="tab-roles">
-            <Shield className="h-4 w-4 mr-2" />
-            Roles
-          </TabsTrigger>
+      <Tabs defaultValue="gateway" className="w-full">
+        <TabsList className="bg-[#F0F0EA] border border-[#E2E2DF]">
+          <TabsTrigger value="gateway" className="data-[state=active]:bg-white text-sm" data-testid="tab-gateway"><Layers className="h-3.5 w-3.5 mr-1.5" />Adjudication Gateway</TabsTrigger>
+          <TabsTrigger value="users" className="data-[state=active]:bg-white text-sm" data-testid="tab-users"><Users className="h-3.5 w-3.5 mr-1.5" />Users</TabsTrigger>
+          <TabsTrigger value="system" className="data-[state=active]:bg-white text-sm" data-testid="tab-system"><Cog className="h-3.5 w-3.5 mr-1.5" />System</TabsTrigger>
         </TabsList>
 
-        {/* Audit Log Tab */}
-        <TabsContent value="audit" className="mt-6">
-          <div className="container-card p-0 overflow-hidden">
-            <div className="p-6 border-b border-[#E2E2DF] flex items-center justify-between">
-              <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
-                System Audit Log
-              </h3>
-              <Button
-                onClick={fetchAuditLogs}
-                variant="outline"
-                size="sm"
-                className="btn-secondary"
-                data-testid="refresh-audit-btn"
-              >
-                <RefreshCw className="h-4 w-4" />
+        {/* ADJUDICATION GATEWAY TAB */}
+        <TabsContent value="gateway" className="mt-6 space-y-6">
+          <div className="container-card">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Tiered Authorization Matrix</h2>
+                <p className="text-xs text-[#8A8A85] mt-1">Global thresholds that control auto-adjudication behavior across all plan types</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={gatewayConfig.enabled}
+                    onChange={(e) => setGatewayConfig({ ...gatewayConfig, enabled: e.target.checked })}
+                    className="h-4 w-4 rounded"
+                    data-testid="gateway-enabled"
+                  />
+                  <span className="text-sm font-medium text-[#1C1C1A]">Enabled</span>
+                </label>
+                <Badge className={gatewayConfig.enabled ? 'badge-approved' : 'bg-[#F0F0EA] text-[#8A8A85] border-0'}>
+                  {gatewayConfig.enabled ? 'Active' : 'Disabled'}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Tier 1 */}
+              <div className={`rounded-xl p-5 border-2 transition-all ${gatewayConfig.enabled ? 'border-[#4B6E4E] bg-[#F7FAF7]' : 'border-[#E2E2DF] bg-[#F7F7F4] opacity-60'}`} data-testid="tier-1-card">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#4B6E4E] flex items-center justify-center"><Zap className="h-4 w-4 text-white" /></div>
+                  <div>
+                    <p className="font-medium text-sm text-[#1C1C1A] font-['Outfit']">Tier 1 — Auto-Pilot</p>
+                    <p className="text-[10px] text-[#8A8A85]">Fully automated, no human touch</p>
+                  </div>
+                </div>
+                <div className="space-y-2 mt-4">
+                  <Label className="text-xs">Claims up to:</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#64645F]">$</span>
+                    <Input
+                      type="number"
+                      value={gatewayConfig.tier1_auto_pilot_limit}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, tier1_auto_pilot_limit: parseFloat(e.target.value) || 0 })}
+                      className="input-field"
+                      disabled={!gatewayConfig.enabled}
+                      data-testid="tier1-limit"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 text-xs text-[#64645F] bg-white rounded-md p-2.5 border border-[#E2E2DF]">
+                  Claims ≤ {fmt(gatewayConfig.tier1_auto_pilot_limit)} that match Code DB + Census → <span className="font-semibold text-[#4B6E4E]">Auto-Paid</span>
+                </div>
+              </div>
+
+              {/* Tier 2 */}
+              <div className={`rounded-xl p-5 border-2 transition-all ${gatewayConfig.enabled ? 'border-[#C9862B] bg-[#FFFBF5]' : 'border-[#E2E2DF] bg-[#F7F7F4] opacity-60'}`} data-testid="tier-2-card">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#C9862B] flex items-center justify-center"><Search className="h-4 w-4 text-white" /></div>
+                  <div>
+                    <p className="font-medium text-sm text-[#1C1C1A] font-['Outfit']">Tier 2 — Audit Hold</p>
+                    <p className="text-[10px] text-[#8A8A85]">Auto-adjudicated, flagged for audit</p>
+                  </div>
+                </div>
+                <div className="space-y-2 mt-4">
+                  <Label className="text-xs">Claims up to:</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#64645F]">$</span>
+                    <Input
+                      type="number"
+                      value={gatewayConfig.tier2_audit_hold_limit}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, tier2_audit_hold_limit: parseFloat(e.target.value) || 0 })}
+                      className="input-field"
+                      disabled={!gatewayConfig.enabled}
+                      data-testid="tier2-limit"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 text-xs text-[#64645F] bg-white rounded-md p-2.5 border border-[#E2E2DF]">
+                  Claims {fmt(gatewayConfig.tier1_auto_pilot_limit)}–{fmt(gatewayConfig.tier2_audit_hold_limit)} → <span className="font-semibold text-[#C9862B]">Paid + Post-Payment Audit</span>
+                </div>
+              </div>
+
+              {/* Tier 3 */}
+              <div className={`rounded-xl p-5 border-2 transition-all ${gatewayConfig.enabled ? 'border-[#C24A3B] bg-[#FFF5F5]' : 'border-[#E2E2DF] bg-[#F7F7F4] opacity-60'}`} data-testid="tier-3-card">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#C24A3B] flex items-center justify-center"><Lock className="h-4 w-4 text-white" /></div>
+                  <div>
+                    <p className="font-medium text-sm text-[#1C1C1A] font-['Outfit']">Tier 3 — Hard Hold</p>
+                    <p className="text-[10px] text-[#8A8A85]">Requires examiner digital signature</p>
+                  </div>
+                </div>
+                <div className="space-y-2 mt-4">
+                  <Label className="text-xs">Claims above Tier 2 limit</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#64645F]">$</span>
+                    <Input
+                      value={gatewayConfig.tier2_audit_hold_limit}
+                      className="input-field bg-[#F7F7F4]"
+                      disabled
+                    />
+                    <span className="text-xs text-[#8A8A85]">+</span>
+                  </div>
+                </div>
+                <div className="mt-4 text-xs text-[#64645F] bg-white rounded-md p-2.5 border border-[#E2E2DF]">
+                  Claims &gt; {fmt(gatewayConfig.tier2_audit_hold_limit)} → <span className="font-semibold text-[#C24A3B]">Pending Review (Hard Hold)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-[#E2E2DF]">
+              <div className="flex items-center gap-2 text-xs text-[#8A8A85]">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Changes apply to all future claims immediately. Existing claims are not retroactively re-tiered.</span>
+              </div>
+              <Button onClick={saveGateway} disabled={gatewaySaving} className="btn-primary" data-testid="save-gateway-btn">
+                {gatewaySaving ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Save Gateway Config
               </Button>
             </div>
-            
-            {loading ? (
-              <div className="flex items-center justify-center h-64">
-                <RefreshCw className="h-8 w-8 text-[#1A3636] animate-spin" />
+          </div>
+
+          {/* How It Works */}
+          <div className="container-card">
+            <h3 className="text-sm font-medium text-[#1C1C1A] font-['Outfit'] mb-4">How the Gateway Protects Your MGU</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="bg-[#F7FAF7] rounded-lg p-4 border border-[#D4E5D6]">
+                <p className="font-medium text-[#4B6E4E] mb-1">Auto-Adjudication Leakage Prevention</p>
+                <p className="text-[#64645F]">A $100k trauma claim on a standard plan won't auto-process — Tier 3 catches it and holds for examiner verification of Stop-Loss coordinates.</p>
               </div>
+              <div className="bg-[#FFFBF5] rounded-lg p-4 border border-[#E8D5B5]">
+                <p className="font-medium text-[#C9862B] mb-1">Post-Payment Audit Trail</p>
+                <p className="text-[#64645F]">Mid-range claims are paid fast but logged for audit. Carriers see clean Bordereaux with audit-flagged claims marked for review.</p>
+              </div>
+              <div className="bg-[#FFF5F5] rounded-lg p-4 border border-[#E5B5B0]">
+                <p className="font-medium text-[#C24A3B] mb-1">Cross-Plan Protection</p>
+                <p className="text-[#64645F]">Both MEC and Standard plans respect the global ceiling. Even preventive claims over the threshold are held for verification.</p>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* USERS TAB */}
+        <TabsContent value="users" className="mt-6 space-y-6">
+          <div className="container-card">
+            <h2 className="text-lg font-medium text-[#1C1C1A] font-['Outfit'] mb-4">Create User</h2>
+            <form onSubmit={createUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Name</Label><Input value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} className="input-field" required data-testid="user-name" /></div>
+              <div className="space-y-2"><Label>Email</Label><Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} className="input-field" required data-testid="user-email" /></div>
+              <div className="space-y-2"><Label>Password</Label><Input type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} className="input-field" required data-testid="user-password" /></div>
+              <div className="space-y-2">
+                <Label>Role</Label>
+                <Select value={userForm.role} onValueChange={(v) => setUserForm({ ...userForm, role: v })}>
+                  <SelectTrigger data-testid="user-role"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="adjudicator">Adjudicator</SelectItem>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-full flex justify-end">
+                <Button type="submit" disabled={saving} className="btn-primary" data-testid="create-user-btn">
+                  {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : 'Create User'}
+                </Button>
+              </div>
+            </form>
+          </div>
+
+          <div className="container-card p-0 overflow-hidden">
+            <div className="p-4 border-b border-[#E2E2DF]"><h2 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">System Users</h2></div>
+            {loading ? (
+              <div className="flex items-center justify-center h-32"><RefreshCw className="h-6 w-6 text-[#1A3636] animate-spin" /></div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="table-header">
-                    <TableHead>Timestamp</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>User</TableHead>
-                    <TableHead>Details</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Created</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {auditLogs.map((log) => (
-                    <TableRow key={log.id} className="table-row">
-                      <TableCell className="text-xs text-[#64645F]">
-                        {new Date(log.timestamp).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getActionBadgeClass(log.action)}>
-                          {log.action.replace(/_/g, ' ')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-['JetBrains_Mono'] text-xs">
-                        {log.user_id?.slice(0, 8)}...
-                      </TableCell>
-                      <TableCell className="text-sm text-[#64645F] max-w-[300px] truncate">
-                        {log.details?.claim_number && `Claim: ${log.details.claim_number}`}
-                        {log.details?.plan_id && `Plan: ${log.details.plan_id}`}
-                        {log.details?.email && `Email: ${log.details.email}`}
-                      </TableCell>
+                  {users.map((u) => (
+                    <TableRow key={u.id || u.email} className="table-row">
+                      <TableCell className="font-medium">{u.name}</TableCell>
+                      <TableCell className="text-xs text-[#64645F]">{u.email}</TableCell>
+                      <TableCell><Badge className={u.role === 'admin' ? 'bg-[#1A3636] text-white border-0' : 'bg-[#F0F0EA] text-[#64645F] border-0'}>{u.role}</Badge></TableCell>
+                      <TableCell className="text-xs text-[#8A8A85]">{u.created_at?.split('T')[0]}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -142,135 +309,34 @@ export default function Settings() {
           </div>
         </TabsContent>
 
-        {/* System Tab */}
+        {/* SYSTEM TAB */}
         <TabsContent value="system" className="mt-6">
-          <div className="container-card space-y-6">
-            <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
-              System Information
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-4 bg-[#F7F7F4] rounded-lg">
-                <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">
-                  Version
-                </p>
-                <p className="font-['JetBrains_Mono'] text-sm">FletchFlow v1.0.0</p>
+          <div className="container-card">
+            <h2 className="text-lg font-medium text-[#1C1C1A] font-['Outfit'] mb-4">System Configuration</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">Authentication</p>
+                <p className="text-sm font-medium">Microsoft MSAL / JWT Fallback</p>
               </div>
-              <div className="p-4 bg-[#F7F7F4] rounded-lg">
-                <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">
-                  Environment
-                </p>
-                <p className="font-['JetBrains_Mono'] text-sm">Production</p>
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">Database</p>
+                <p className="text-sm font-medium">MongoDB</p>
               </div>
-              <div className="p-4 bg-[#F7F7F4] rounded-lg">
-                <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">
-                  Database
-                </p>
-                <p className="font-['JetBrains_Mono'] text-sm">MongoDB Connected</p>
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">Coverage Lines</p>
+                <p className="text-sm font-medium">Medical, Dental, Vision, Hearing</p>
               </div>
-              <div className="p-4 bg-[#F7F7F4] rounded-lg">
-                <p className="text-xs uppercase tracking-[0.2em] text-[#64645F] mb-1">
-                  Current User
-                </p>
-                <p className="font-['JetBrains_Mono'] text-sm">{user?.email}</p>
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">Procedure Codes</p>
+                <p className="text-sm font-medium">440 (189 Med + 79 Den + 44 Vis + 65 Hear + 63 Prev)</p>
               </div>
-            </div>
-
-            <div className="pt-6 border-t border-[#E2E2DF]">
-              <h4 className="font-medium text-[#1C1C1A] mb-4">
-                Supported Coverage Lines
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                <Badge className="badge-approved">Medical</Badge>
-                <Badge className="badge-approved">Dental</Badge>
-                <Badge className="badge-approved">Vision</Badge>
-                <Badge className="badge-approved">Hearing</Badge>
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">GPCI Localities</p>
+                <p className="text-sm font-medium">87</p>
               </div>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Roles Tab */}
-        <TabsContent value="roles" className="mt-6">
-          <div className="container-card space-y-6">
-            <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
-              Role Permissions
-            </h3>
-            
-            <div className="space-y-4">
-              <div className="p-4 border border-[#E2E2DF] rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 bg-[#1A3636] rounded flex items-center justify-center">
-                    <Shield className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-[#1C1C1A]">Admin</p>
-                    <p className="text-xs text-[#64645F]">Full system access</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">Manage Plans</Badge>
-                  <Badge variant="outline">Manage Members</Badge>
-                  <Badge variant="outline">Adjudicate Claims</Badge>
-                  <Badge variant="outline">View Reports</Badge>
-                  <Badge variant="outline">System Settings</Badge>
-                  <Badge variant="outline">Audit Logs</Badge>
-                </div>
-              </div>
-
-              <div className="p-4 border border-[#E2E2DF] rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 bg-[#4A6FA5] rounded flex items-center justify-center">
-                    <Users className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-[#1C1C1A]">Adjudicator</p>
-                    <p className="text-xs text-[#64645F]">Claims processing</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">Add Members</Badge>
-                  <Badge variant="outline">Create Claims</Badge>
-                  <Badge variant="outline">Adjudicate Claims</Badge>
-                  <Badge variant="outline">Resolve Duplicates</Badge>
-                  <Badge variant="outline">View Reports</Badge>
-                </div>
-              </div>
-
-              <div className="p-4 border border-[#E2E2DF] rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 bg-[#8E9F85] rounded flex items-center justify-center">
-                    <Users className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-[#1C1C1A]">Reviewer</p>
-                    <p className="text-xs text-[#64645F]">Read-only review access</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">View Claims</Badge>
-                  <Badge variant="outline">View Members</Badge>
-                  <Badge variant="outline">View Plans</Badge>
-                  <Badge variant="outline">Resolve Duplicates</Badge>
-                </div>
-              </div>
-
-              <div className="p-4 border border-[#E2E2DF] rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 bg-[#C9862B] rounded flex items-center justify-center">
-                    <History className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-[#1C1C1A]">Auditor</p>
-                    <p className="text-xs text-[#64645F]">Compliance and audit access</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">View Claims</Badge>
-                  <Badge variant="outline">View Audit Logs</Badge>
-                  <Badge variant="outline">View Reports</Badge>
-                  <Badge variant="outline">Export Data</Badge>
-                </div>
+              <div className="bg-[#F7F7F4] rounded-lg p-4">
+                <p className="text-xs text-[#8A8A85]">EDI Standards</p>
+                <p className="text-sm font-medium">834 / 837 / 835</p>
               </div>
             </div>
           </div>

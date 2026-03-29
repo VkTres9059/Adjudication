@@ -116,6 +116,8 @@ class ClaimStatus(str, Enum):
     DENIED = "denied"
     DUPLICATE = "duplicate"
     PENDED = "pended"
+    MANAGERIAL_HOLD = "managerial_hold"
+    PENDING_REVIEW = "pending_review"
 
 class ClaimType(str, Enum):
     MEDICAL = "medical"
@@ -356,6 +358,10 @@ class ClaimResponse(BaseModel):
     adjudication_notes: List[str]
     created_at: str
     adjudicated_at: Optional[str]
+    audit_flag: Optional[str] = None
+    hold_info: Optional[Dict] = None
+    tier_level: Optional[int] = None
+    carrier_notification: Optional[bool] = None
 
 class DuplicateAlert(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -373,9 +379,19 @@ class DuplicateAlert(BaseModel):
     created_at: str
 
 class AdjudicationAction(BaseModel):
-    action: str  # approve, deny, pend, override_duplicate
+    action: str  # approve, deny, pend, override_duplicate, force_preventive, adjust_deductible, carrier_notification, release_hold
     notes: Optional[str] = None
     denial_reason: Optional[str] = None
+    deductible_adjustment: Optional[float] = None
+
+class AdjudicationGatewayConfig(BaseModel):
+    tier1_auto_pilot_limit: float = 500.0
+    tier2_audit_hold_limit: float = 2500.0
+    enabled: bool = True
+
+class HoldRequest(BaseModel):
+    reason_code: str  # medical_necessity, cob, subrogation, fraud_investigation, stop_loss_review
+    notes: Optional[str] = None
 
 class DashboardMetrics(BaseModel):
     total_claims: int
@@ -383,6 +399,7 @@ class DashboardMetrics(BaseModel):
     approved_claims: int
     denied_claims: int
     duplicate_alerts: int
+    held_claims: int = 0
     total_paid: float
     total_saved_duplicates: float
     auto_adjudication_rate: float
@@ -1014,6 +1031,33 @@ async def get_me(user: dict = Depends(get_current_user)):
         created_at=user["created_at"]
     )
 
+@api_router.get("/users")
+async def list_users(user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """List all system users (admin only)."""
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
+    return users
+
+@api_router.post("/users")
+async def create_user_admin(user_data: UserCreate, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Create a user (admin only)."""
+    existing = await db.users.find_one({"email": user_data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    user_doc = {
+        "id": user_id,
+        "email": user_data.email,
+        "password_hash": hash_password(user_data.password),
+        "name": user_data.name,
+        "role": user_data.role.value,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.users.insert_one(user_doc)
+    return {"id": user_id, "email": user_data.email, "name": user_data.name, "role": user_data.role.value, "created_at": now}
+
 # ==================== PLAN ENDPOINTS ====================
 
 @api_router.post("/plans", response_model=PlanResponse)
@@ -1362,8 +1406,6 @@ async def group_pulse_analytics(group_id: str, user: dict = Depends(get_current_
         surplus = max(0, aggregate_att - total_paid_val) if aggregate_att > 0 else 0
         total_premium = group.get("total_premium", 0)
         mgu_fees = group.get("mgu_fees", 0)
-        fixed_costs = 0
-        expected_claims = 0
     
     stop_loss_data = {}
     if is_mec_group:
@@ -1574,6 +1616,39 @@ async def create_claim(claim_data: ClaimCreate, user: dict = Depends(require_rol
         adjudication_result = await adjudicate_claim(claim_doc, plan, member)
         claim_doc.update(adjudication_result)
         claim_doc["adjudicated_at"] = now
+        
+        # ===== GLOBAL ADJUDICATION GATEWAY (Tiered Authorization Matrix) =====
+        gateway_doc = await db.settings.find_one({"key": "adjudication_gateway"}, {"_id": 0})
+        gateway = gateway_doc.get("value", {}) if gateway_doc else {}
+        gateway_enabled = gateway.get("enabled", True)
+        
+        if gateway_enabled:
+            tier1_limit = gateway.get("tier1_auto_pilot_limit", 500.0)
+            tier2_limit = gateway.get("tier2_audit_hold_limit", 2500.0)
+            total_paid_amount = claim_doc.get("total_paid", 0)
+            total_billed_amount = claim_doc.get("total_billed", 0)
+            check_amount = max(total_paid_amount, total_billed_amount)
+            
+            if check_amount <= tier1_limit:
+                # Tier 1: Auto-Pilot — claim stays as-is (auto-adjudicated)
+                claim_doc["tier_level"] = 1
+                claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                    f"TIER 1 (Auto-Pilot): ${check_amount:.2f} within ${tier1_limit:.2f} threshold."
+                ]
+            elif check_amount <= tier2_limit:
+                # Tier 2: Audit Hold — auto-adjudicated but flagged for post-payment audit
+                claim_doc["tier_level"] = 2
+                claim_doc["audit_flag"] = "post_payment_audit"
+                claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                    f"TIER 2 (Audit Hold): ${check_amount:.2f} flagged for Post-Payment Audit (threshold: ${tier1_limit:.2f}-${tier2_limit:.2f})."
+                ]
+            else:
+                # Tier 3: Hard Hold — moved to pending_review
+                claim_doc["tier_level"] = 3
+                claim_doc["status"] = ClaimStatus.PENDING_REVIEW.value
+                claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                    f"TIER 3 (Hard Hold): ${check_amount:.2f} exceeds ${tier2_limit:.2f} threshold. Requires examiner review and digital signature."
+                ]
     
     await db.claims.insert_one(claim_doc)
     
@@ -1690,7 +1765,235 @@ async def adjudicate_claim_action(
     updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
     return ClaimResponse(**updated)
 
-# ==================== DUPLICATE ALERTS ====================
+# ==================== ADJUDICATION GATEWAY SETTINGS ====================
+
+@api_router.get("/settings/adjudication-gateway")
+async def get_adjudication_gateway(user: dict = Depends(get_current_user)):
+    """Get the global adjudication gateway tier thresholds."""
+    config = await db.settings.find_one({"key": "adjudication_gateway"}, {"_id": 0})
+    if not config:
+        return {
+            "tier1_auto_pilot_limit": 500.0,
+            "tier2_audit_hold_limit": 2500.0,
+            "enabled": True,
+        }
+    return config.get("value", {})
+
+@api_router.put("/settings/adjudication-gateway")
+async def update_adjudication_gateway(config: AdjudicationGatewayConfig, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Update the global adjudication gateway tier thresholds."""
+    now = datetime.now(timezone.utc).isoformat()
+    await db.settings.update_one(
+        {"key": "adjudication_gateway"},
+        {"$set": {"key": "adjudication_gateway", "value": config.model_dump(), "updated_at": now, "updated_by": user["id"]}},
+        upsert=True
+    )
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "gateway_config_updated",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"tier1": config.tier1_auto_pilot_limit, "tier2": config.tier2_audit_hold_limit, "enabled": config.enabled}
+    })
+    return {"message": "Adjudication gateway updated", **config.model_dump()}
+
+# ==================== CLAIM HOLD / RELEASE ====================
+
+@api_router.put("/claims/{claim_id}/hold")
+async def place_claim_on_hold(claim_id: str, hold: HoldRequest, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Place a claim on managerial hold."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if claim["status"] == ClaimStatus.MANAGERIAL_HOLD.value:
+        raise HTTPException(status_code=400, detail="Claim is already on hold")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    hold_info = {
+        "reason_code": hold.reason_code,
+        "notes": hold.notes or "",
+        "placed_by": user["id"],
+        "placed_by_name": user.get("name", user["email"]),
+        "placed_at": now,
+        "previous_status": claim["status"],
+    }
+    
+    notes = claim.get("adjudication_notes", []) + [
+        f"MANAGERIAL HOLD placed by {user.get('name', user['email'])}: {hold.reason_code.replace('_', ' ').title()}" +
+        (f" - {hold.notes}" if hold.notes else "")
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "status": ClaimStatus.MANAGERIAL_HOLD.value,
+        "hold_info": hold_info,
+        "adjudication_notes": notes,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "claim_hold_placed",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "reason": hold.reason_code, "claim_number": claim.get("claim_number", "")}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+@api_router.put("/claims/{claim_id}/release-hold")
+async def release_claim_hold(claim_id: str, notes: Optional[str] = Query(default=None), user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Release a claim from managerial hold. Requires admin (digital signature)."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if claim["status"] != ClaimStatus.MANAGERIAL_HOLD.value:
+        raise HTTPException(status_code=400, detail="Claim is not on hold")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    hold_info = claim.get("hold_info", {})
+    previous_status = hold_info.get("previous_status", ClaimStatus.PENDING.value)
+    
+    release_notes = claim.get("adjudication_notes", []) + [
+        f"HOLD RELEASED by {user.get('name', user['email'])} (Admin)" + (f" - {notes}" if notes else "")
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "status": previous_status,
+        "hold_info": None,
+        "adjudication_notes": release_notes,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "claim_hold_released",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "restored_status": previous_status, "claim_number": claim.get("claim_number", "")}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+# ==================== EXAMINER WORKSPACE ACTIONS ====================
+
+@api_router.post("/claims/{claim_id}/force-preventive")
+async def force_preventive_override(claim_id: str, notes: Optional[str] = Query(default=None), user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """MEC Examiner: Force preventive flag on a claim to override to $0 member cost."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Reprocess: set all lines to preventive $0
+    service_lines = claim.get("service_lines", [])
+    total_allowed = 0
+    total_paid = 0
+    for line in service_lines:
+        allowed = line.get("billed_amount", line.get("allowed", 0))
+        line["is_preventive"] = True
+        line["paid"] = allowed
+        line["allowed"] = allowed
+        line["member_resp"] = 0.0
+        line["eob_message"] = "Preventive Service - $0 Member Responsibility (Examiner Override)"
+        line["coverage_type"] = "preventive"
+        total_allowed += allowed
+        total_paid += allowed
+    
+    adj_notes = claim.get("adjudication_notes", []) + [
+        f"EXAMINER OVERRIDE: Preventive flag forced by {user.get('name', user['email'])}. All lines set to $0 member cost." +
+        (f" Notes: {notes}" if notes else "")
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "status": ClaimStatus.APPROVED.value,
+        "total_allowed": round(total_allowed, 2),
+        "total_paid": round(total_paid, 2),
+        "member_responsibility": 0.0,
+        "service_lines": service_lines,
+        "adjudication_notes": adj_notes,
+        "adjudicated_at": now,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "examiner_force_preventive",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "claim_number": claim.get("claim_number", "")}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+@api_router.post("/claims/{claim_id}/adjust-deductible")
+async def adjust_deductible(claim_id: str, amount: float = Query(...), notes: Optional[str] = Query(default=None), user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Standard Plan Examiner: Manually adjust the deductible applied amount."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    original_member_resp = claim.get("member_responsibility", 0)
+    original_paid = claim.get("total_paid", 0)
+    
+    # Adjust: reduce member responsibility by the deductible adjustment
+    delta = max(0, original_member_resp) - max(0, amount)
+    new_member_resp = max(0, amount)
+    new_paid = max(0, original_paid + delta)
+    
+    adj_notes = claim.get("adjudication_notes", []) + [
+        f"EXAMINER DEDUCTIBLE ADJUSTMENT by {user.get('name', user['email'])}: Member responsibility changed from ${original_member_resp:.2f} to ${new_member_resp:.2f}." +
+        (f" Notes: {notes}" if notes else "")
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "member_responsibility": round(new_member_resp, 2),
+        "total_paid": round(new_paid, 2),
+        "adjudication_notes": adj_notes,
+        "adjudicated_at": now,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "examiner_adjust_deductible",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "old_member_resp": original_member_resp, "new_member_resp": new_member_resp}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+@api_router.post("/claims/{claim_id}/carrier-notification")
+async def flag_carrier_notification(claim_id: str, notes: Optional[str] = Query(default=None), user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """Stop-Loss Examiner: Flag claim as Specific Notification to Carrier."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    adj_notes = claim.get("adjudication_notes", []) + [
+        f"CARRIER NOTIFICATION flagged by {user.get('name', user['email'])}: Specific attachment point notification sent to carrier." +
+        (f" Notes: {notes}" if notes else "")
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "carrier_notification": True,
+        "adjudication_notes": adj_notes,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "carrier_notification_flagged",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "claim_number": claim.get("claim_number", "")}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
 
 @api_router.get("/duplicates", response_model=List[DuplicateAlert])
 async def list_duplicate_alerts(
@@ -1749,9 +2052,10 @@ async def resolve_duplicate_alert(
 async def get_dashboard_metrics(user: dict = Depends(get_current_user)):
     # Get claim counts
     total_claims = await db.claims.count_documents({})
-    pending_claims = await db.claims.count_documents({"status": {"$in": [ClaimStatus.PENDING.value, ClaimStatus.PENDED.value, ClaimStatus.IN_REVIEW.value]}})
+    pending_claims = await db.claims.count_documents({"status": {"$in": [ClaimStatus.PENDING.value, ClaimStatus.PENDED.value, ClaimStatus.IN_REVIEW.value, ClaimStatus.PENDING_REVIEW.value]}})
     approved_claims = await db.claims.count_documents({"status": ClaimStatus.APPROVED.value})
     denied_claims = await db.claims.count_documents({"status": {"$in": [ClaimStatus.DENIED.value, ClaimStatus.DUPLICATE.value]}})
+    held_claims = await db.claims.count_documents({"status": ClaimStatus.MANAGERIAL_HOLD.value})
     
     # Get duplicate alerts
     duplicate_alerts = await db.duplicate_alerts.count_documents({"status": "pending"})
@@ -1782,6 +2086,7 @@ async def get_dashboard_metrics(user: dict = Depends(get_current_user)):
         approved_claims=approved_claims,
         denied_claims=denied_claims,
         duplicate_alerts=duplicate_alerts,
+        held_claims=held_claims,
         total_paid=total_paid,
         total_saved_duplicates=total_saved,
         auto_adjudication_rate=round(auto_rate, 1),
@@ -1822,7 +2127,7 @@ async def fixed_cost_vs_claims(user: dict = Depends(get_current_user)):
         member_ids = [m["member_id"] for m in member_ids_cursor]
         
         pipeline = [
-            {"$match": {"member_id": {"$in": member_ids}}},
+            {"$match": {"member_id": {"$in": member_ids}, "status": {"$nin": ["managerial_hold"]}}},
             {"$group": {"_id": None, "total_paid": {"$sum": "$total_paid"}, "total_billed": {"$sum": "$total_billed"}, "claim_count": {"$sum": 1}}}
         ]
         fin = await db.claims.aggregate(pipeline).to_list(1)

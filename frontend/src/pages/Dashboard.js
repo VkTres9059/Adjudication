@@ -34,6 +34,8 @@ const STATUS_COLORS = {
   denied: '#C24A3B',
   duplicate: '#C24A3B',
   pended: '#4A6FA5',
+  managerial_hold: '#5C2D91',
+  pending_review: '#C24A3B',
 };
 
 export default function Dashboard() {
@@ -148,6 +150,34 @@ export default function Dashboard() {
           <Link to="/duplicates">
             <Button className="btn-destructive" data-testid="view-duplicates-btn">
               Review Now
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* Held Claims Banner */}
+      {metrics?.held_claims > 0 && (
+        <div 
+          className="bg-[#F3EBF9] border border-[#5C2D91]/30 rounded-xl p-4 flex items-center justify-between"
+          data-testid="held-claims-banner"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#5C2D91] rounded-lg flex items-center justify-center">
+              <Clock className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[#5C2D91]">
+                {metrics.held_claims} Claim{metrics.held_claims !== 1 ? 's' : ''} on Managerial Hold
+              </p>
+              <p className="text-xs text-[#64645F]">
+                Frozen claims excluded from financials — requires admin release
+              </p>
+            </div>
+          </div>
+          <Link to="/claims">
+            <Button className="bg-[#5C2D91] hover:bg-[#4a2475] text-white" data-testid="view-held-btn">
+              Review
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           </Link>

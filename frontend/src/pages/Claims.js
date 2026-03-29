@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Lock,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -41,6 +42,8 @@ const STATUS_CONFIG = {
   denied: { label: 'Denied', icon: XCircle, class: 'badge-denied' },
   duplicate: { label: 'Duplicate', icon: AlertTriangle, class: 'badge-duplicate' },
   pended: { label: 'Pended', icon: Clock, class: 'badge-pended' },
+  managerial_hold: { label: 'On Hold', icon: Lock, class: 'bg-[#5C2D91] text-white border-0' },
+  pending_review: { label: 'Pending Review', icon: Lock, class: 'bg-[#C24A3B] text-white border-0' },
 };
 
 export default function Claims() {
@@ -162,6 +165,8 @@ export default function Claims() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="pended">Pended</SelectItem>
+                <SelectItem value="pending_review">Pending Review</SelectItem>
+                <SelectItem value="managerial_hold">On Hold</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="denied">Denied</SelectItem>
                 <SelectItem value="duplicate">Duplicate</SelectItem>

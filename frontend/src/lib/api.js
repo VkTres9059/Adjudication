@@ -142,3 +142,16 @@ export const codeAPI = {
 export const batchAPI = {
   processClaims: (data) => api.post('/claims/batch', data),
 };
+
+export const settingsAPI = {
+  getGateway: () => api.get('/settings/adjudication-gateway'),
+  updateGateway: (data) => api.put('/settings/adjudication-gateway', data),
+};
+
+export const examinerAPI = {
+  holdClaim: (claimId, data) => api.put(`/claims/${claimId}/hold`, data),
+  releaseHold: (claimId, notes) => api.put(`/claims/${claimId}/release-hold`, null, { params: { notes } }),
+  forcePreventive: (claimId, notes) => api.post(`/claims/${claimId}/force-preventive`, null, { params: { notes } }),
+  adjustDeductible: (claimId, amount, notes) => api.post(`/claims/${claimId}/adjust-deductible`, null, { params: { amount, notes } }),
+  carrierNotification: (claimId, notes) => api.post(`/claims/${claimId}/carrier-notification`, null, { params: { notes } }),
+};
