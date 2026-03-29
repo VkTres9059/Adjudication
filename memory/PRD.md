@@ -1,109 +1,87 @@
-# Javelina Claims Adjudication System - PRD
+# FletchFlow Claims Adjudication System - PRD
 
-## Original Problem Statement
-Build a scalable, API-first claims adjudication system on top of Javelina that supports multiple lines of coverage including medical, dental, vision, and hearing. The system must be modular, configurable by product and plan, and capable of high-volume automated adjudication with minimal manual intervention. The system must also include robust plan build functionality and strict duplicate claim prevention.
+## Product Overview
+FletchFlow is a scalable, API-first claims adjudication system named after Chevy Chase. It supports multiple lines of coverage (Medical, Dental, Vision, Hearing) with built-in CPT/CDT codes, Medicare fee schedule with GPCI locality adjustments, real X12 EDI parsing, network repricing, prior authorization, and duplicate claim prevention.
 
-## User Personas
-- **Admin**: Full system access - plan configuration, user management, settings, audit logs
-- **Adjudicator**: Claims processing - create/adjudicate claims, add members, resolve duplicates
-- **Reviewer**: Read-only review access - view claims, members, plans, resolve duplicates
-- **Auditor**: Compliance access - view claims, audit logs, reports, export data
+## Core Requirements (from User)
+1. Microsoft MFA for authentication (MSAL scaffolded, JWT mock fallback)
+2. Start with Medical coverage, expand to Dental, Vision, Hearing
+3. Accept EDI 834 (eligibility) and 837 (claims) input, generate 835 output
+4. Network APIs for provider contract management and repricing
+5. Basic reporting for claims and eligibility
+6. Built-in medical claims CPT codes and Medicare fee schedule with GPCI locality adjustments
+7. Strict duplicate claim prevention and plan build functionality
+8. New age creative design with good UI
+9. External billing system will be plugged in later (not built)
 
-## Core Requirements (Static)
-1. Plan Build and Benefit Configuration Layer
-2. Intake Layer (EDI 834/837, API)
-3. Adjudication Engine (Medical first, then Dental/Vision/Hearing)
-4. Duplicate Claim Prevention (Exact + Near duplicate detection)
-5. Payment Output Layer (835 generation)
-6. Analytics and Monitoring Dashboard
-7. Role-based Access Control
+## Architecture
+- **Frontend**: React + Tailwind CSS + Shadcn UI + MSAL
+- **Backend**: FastAPI + MongoDB + JWT Auth
+- **Database**: MongoDB (users, plans, claims, members, duplicates, prior_authorizations, network_contracts, accumulators, audit_logs)
 
-## User Choices & Decisions
-- **Authentication**: JWT-based auth (Microsoft MFA mocked for demo)
-- **Phase 1 Coverage**: Medical only
-- **EDI Support**: 834 enrollment, 837 claims input, 835 payment output
-- **Reporting**: Basic claims and eligibility reports
-- **Design**: New-age creative UI with organic & earthy theme
+## What's Been Implemented
 
-## What's Been Implemented (March 2026)
+### Phase 1 - Core (Complete)
+- [x] FastAPI backend with MongoDB
+- [x] JWT authentication with RBAC (admin, adjudicator, reviewer, auditor)
+- [x] MSAL scaffolding for Microsoft MFA
+- [x] Dashboard with real-time metrics and charts
+- [x] Claims management (CRUD, adjudication, status tracking)
+- [x] Plan builder with benefit configuration
+- [x] Member management with eligibility tracking
+- [x] Duplicate claim detection (exact, near, line-level)
+- [x] Reports with claims and eligibility analytics
+- [x] Settings with audit log, system info, role permissions
+- [x] FletchFlow branding (renamed from Javelina)
 
-### Backend (FastAPI + MongoDB)
-- [x] JWT Authentication with role-based access control (Admin, Adjudicator, Reviewer, Auditor)
-- [x] Plan Build API - CRUD for benefit plans with deductibles, copays, coinsurance, OOP max
-- [x] Member Management API - eligibility, enrollment
-- [x] Claims Processing API - create, adjudicate, approve/deny/pend
-- [x] Duplicate Detection Engine - exact and near-duplicate matching
-- [x] EDI 834 upload (enrollment)
-- [x] EDI 837 upload (claims)
-- [x] EDI 835 generation (payment output)
-- [x] Dashboard Metrics API
-- [x] Audit Logging
-- [x] **CPT Code Database** - 189 codes across 7 categories (E/M, Surgery, Radiology, Pathology/Lab, Medicine, Anesthesia, HCPCS)
-- [x] **Medicare Fee Schedule** - Work RVU, PE RVU, MP RVU with 2024 Conversion Factor ($33.2875)
-- [x] **GPCI Localities** - 87 localities with geographic cost index adjustments
-- [x] **Medicare Rate Calculator** - Formula: [(Work RVU × Work GPCI) + (PE RVU × PE GPCI) + (MP RVU × MP GPCI)] × CF
+### Phase 2 - Multi-Line Coverage (Complete - March 2026)
+- [x] Medical CPT codes: 189 codes across 7 categories
+- [x] Medicare fee schedule with 87 GPCI localities
+- [x] Dental CDT codes: 79 codes (Diagnostic, Preventive, Restorative, Crown, Endodontics, Periodontics, Prosthodontics, Oral Surgery, Orthodontics)
+- [x] Vision codes: 44 codes (Eye Exam, Refraction, Contact Lens, Lenses, Frames, Special Procedures)
+- [x] Hearing codes: 65 codes (Audiometric Testing, Hearing Aid Services/Devices, Cochlear Implant, Vestibular)
+- [x] Unified Code Database page with tabbed search across all coverage lines
+- [x] Multi-line adjudication engine supporting dental benefit classes, vision allowances, hearing device allowances
 
-### Frontend (React + Tailwind + Shadcn UI)
-- [x] Login/Register with role selection
-- [x] Dashboard with metrics, duplicate alerts, charts
-- [x] Claims List with filters, search, status badges
-- [x] Claim Detail with adjudication actions
-- [x] Plan Builder with tabs for General, Cost Sharing, Benefits, Exclusions
-- [x] Plans List with status and type filters
-- [x] Members List with search and 834 upload
-- [x] **Fee Schedule Page** - CPT code search, GPCI locality selector, rate calculator
-- [x] Duplicates Review page with resolution workflow
-- [x] Reports page with charts and 835 export
-- [x] Settings page with audit log viewer
-- [x] Responsive sidebar navigation with user profile
+### Phase 3 - Advanced Features (Complete - March 2026)
+- [x] Real X12 EDI 834 parser (enrollment) - supports both X12 and pipe-delimited
+- [x] Real X12 EDI 837 parser (claims) - supports both X12 and pipe-delimited
+- [x] X12 EDI 835 generator (payment/remittance) - real X12 format output
+- [x] Network management with provider contracts
+- [x] Network repricing (Medicare vs contracted rates comparison)
+- [x] Prior authorization workflow (create, review, approve/deny/pend)
+- [x] Batch claim processing
+- [x] Coordination of Benefits (COB) - secondary payer calculation
+- [x] Member accumulators (deductible, OOP, annual max tracking per coverage type)
 
-### Adjudication Features
-- [x] **Medicare-based pricing** - Uses CPT code RVUs with GPCI adjustments
-- [x] Plan reimbursement methods: fee_schedule (100%), percent_medicare (120%), percent_billed (80%), rbp (140%), contracted (100%)
-- [x] Accumulator tracking (deductible, OOP)
-- [x] Service line level processing with CPT descriptions
-- [x] Automatic duplicate denial for 95%+ matches
-- [x] Pend for review on 50-95% matches
-- [x] Override duplicate capability for authorized users
+## Key API Endpoints
+- `POST /api/auth/login` - JWT authentication
+- `POST /api/auth/register` - User registration
+- `GET/POST /api/claims` - Claims CRUD
+- `POST /api/claims/batch` - Batch claim processing
+- `POST /api/claims/{id}/cob` - Coordination of Benefits
+- `GET/POST /api/plans` - Plan management
+- `GET/POST /api/members` - Member management
+- `GET /api/duplicates` - Duplicate detection
+- `GET /api/dental-codes/search` - Dental CDT code search
+- `GET /api/vision-codes/search` - Vision code search
+- `GET /api/hearing-codes/search` - Hearing code search
+- `GET /api/code-database/stats` - All code database stats
+- `GET /api/cpt-codes/search` - Medical CPT code search
+- `GET /api/fee-schedule/stats` - Fee schedule statistics
+- `POST /api/edi/upload-834` - EDI 834 enrollment file upload (X12 + pipe)
+- `POST /api/edi/upload-837` - EDI 837 claims file upload (X12 + pipe)
+- `GET /api/edi/generate-835` - EDI 835 payment file generation (X12 + pipe)
+- `GET/POST /api/network/contracts` - Network contract management
+- `GET /api/network/reprice/{claim_id}` - Network repricing
+- `GET /api/network/summary` - Network savings summary
+- `GET/POST /api/prior-auth` - Prior authorization workflow
+- `POST /api/prior-auth/{id}/decide` - Prior auth decision
+- `GET /api/dashboard/metrics` - Dashboard analytics
 
-## Prioritized Backlog
-
-### P0 - Critical (Next Sprint)
-- [ ] Dental line of coverage
-- [ ] Vision line of coverage
-- [ ] Hearing line of coverage
-- [ ] Real EDI X12 parser (currently simplified format)
-
-### P1 - High Priority
-- [ ] Microsoft Entra ID (Azure AD) SSO integration
-- [ ] Network repricing integration
-- [ ] Prior authorization workflow
-- [ ] Fee schedule management
-- [ ] Batch claim processing
-
-### P2 - Medium Priority
-- [ ] Coordination of Benefits (COB)
-- [ ] Stop-loss tracking
-- [ ] Member portal
-- [ ] Provider portal
-- [ ] EOB/EOP document generation
-
-### P3 - Future
-- [ ] Real-time eligibility verification API
-- [ ] Payment vendor integrations (ACH, virtual card)
-- [ ] Advanced analytics and MLR reporting
-- [ ] AI-powered claim review assistance
-
-## Next Action Items
-1. Add dental coverage support with CDT codes, class-based benefits, annual max
-2. Implement vision coverage with exam/materials logic
-3. Integrate proper X12 EDI parser library
-4. Add Microsoft Entra ID authentication
-5. Build network repricing workflow
-
-## Technical Notes
-- Backend runs on port 8001 (FastAPI)
-- Frontend runs on port 3000 (React)
-- MongoDB for data persistence
-- JWT tokens expire in 60 minutes
-- All routes prefixed with /api
+## Remaining / Future Work
+- P1: Configure real Azure AD credentials for MSAL (needs user's Tenant/Client IDs)
+- P2: Refactor server.py into modular routers
+- P2: External billing system API integration
+- P3: Advanced reporting/analytics with export capabilities
+- P3: Member portal for self-service eligibility checks
