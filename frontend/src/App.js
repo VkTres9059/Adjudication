@@ -16,6 +16,7 @@ import PriorAuth from "./pages/PriorAuth";
 import Network from "./pages/Network";
 import CodeDatabase from "./pages/CodeDatabase";
 import PreventiveServices from "./pages/PreventiveServices";
+import Groups from "./pages/Groups";
 import Layout from "./components/Layout";
 import "./App.css";
 
@@ -86,6 +87,7 @@ function AppRoutes() {
         <Route path="network" element={<Network />} />
         <Route path="code-database" element={<CodeDatabase />} />
         <Route path="preventive" element={<PreventiveServices />} />
+        <Route path="groups" element={<Groups />} />
         <Route path="reports" element={<Reports />} />
         <Route 
           path="settings" 

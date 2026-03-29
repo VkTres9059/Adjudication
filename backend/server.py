@@ -187,6 +187,69 @@ class PlanCreate(BaseModel):
     tier_type: str = "employee_only"
     exclusions: List[str] = []
     preventive_design: str = "aca_strict"  # aca_strict | enhanced
+    plan_template: Optional[str] = None  # mec_1 | standard | buy_up
+    preauth_penalty_pct: float = 50.0
+    non_network_reimbursement: str = "reference_based"  # reference_based | percent_billed | not_covered
+
+
+# ==================== GROUP MODELS ====================
+
+class StopLossConfig(BaseModel):
+    specific_deductible: float = 0
+    aggregate_attachment_point: float = 0
+    aggregate_factor: float = 125.0
+    contract_period: str = "12_month"
+    laser_deductibles: List[dict] = []
+
+class SFTPConfig(BaseModel):
+    host: str = ""
+    port: int = 22
+    username: str = ""
+    directory: str = "/"
+    schedule: str = "daily"  # daily | weekly | monthly
+    file_types: List[str] = ["834", "835"]
+    enabled: bool = False
+
+class GroupCreate(BaseModel):
+    name: str
+    tax_id: str
+    effective_date: str
+    termination_date: Optional[str] = None
+    contact_name: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+    sic_code: str = ""
+    employee_count: int = 0
+    stop_loss: Optional[StopLossConfig] = None
+    sftp_config: Optional[SFTPConfig] = None
+    plan_ids: List[str] = []
+
+class GroupResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    tax_id: str
+    effective_date: str
+    termination_date: Optional[str] = None
+    contact_name: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+    sic_code: str = ""
+    employee_count: int = 0
+    stop_loss: Optional[dict] = None
+    sftp_config: Optional[dict] = None
+    plan_ids: List[str] = []
+    status: str = "active"
+    created_at: str = ""
+    updated_at: str = ""
 
 class PlanResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -209,6 +272,10 @@ class PlanResponse(BaseModel):
     version: int
     created_at: str
     updated_at: str
+    preventive_design: str = "aca_strict"
+    plan_template: Optional[str] = None
+    preauth_penalty_pct: float = 50.0
+    non_network_reimbursement: str = "reference_based"
 
 class MemberCreate(BaseModel):
     member_id: str
@@ -1056,6 +1123,320 @@ async def get_member(member_id: str, user: dict = Depends(get_current_user)):
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     return MemberResponse(**{k: v for k, v in member.items() if k not in ["address", "updated_at"]})
+
+# ==================== GROUP MANAGEMENT ENDPOINTS ====================
+
+@api_router.post("/groups")
+async def create_group(group_data: GroupCreate, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Create a new employer group."""
+    existing = await db.groups.find_one({"tax_id": group_data.tax_id, "status": "active"})
+    if existing:
+        raise HTTPException(status_code=400, detail="Active group with this Tax ID already exists")
+    
+    group_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    doc = {
+        "id": group_id,
+        **group_data.model_dump(),
+        "stop_loss": group_data.stop_loss.model_dump() if group_data.stop_loss else None,
+        "sftp_config": group_data.sftp_config.model_dump() if group_data.sftp_config else None,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+        "created_by": user["id"],
+        "surplus_bucket": 0.0,
+    }
+    await db.groups.insert_one(doc)
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "group_created",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"group_id": group_id, "group_name": group_data.name, "tax_id": group_data.tax_id}
+    })
+    
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/groups")
+async def list_groups(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    query = {}
+    if status:
+        query["status"] = status
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"tax_id": {"$regex": search, "$options": "i"}},
+        ]
+    groups = await db.groups.find(query, {"_id": 0}).sort("name", 1).to_list(1000)
+    return groups
+
+@api_router.get("/groups/{group_id}")
+async def get_group(group_id: str, user: dict = Depends(get_current_user)):
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # Fetch attached plans
+    plans = []
+    for pid in group.get("plan_ids", []):
+        plan = await db.plans.find_one({"id": pid}, {"_id": 0})
+        if plan:
+            plans.append(plan)
+    group["attached_plans"] = plans
+    
+    # Member count
+    member_count = await db.members.count_documents({"group_id": group_id})
+    group["member_count"] = member_count
+    
+    return group
+
+@api_router.put("/groups/{group_id}")
+async def update_group(group_id: str, group_data: GroupCreate, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    existing = await db.groups.find_one({"id": group_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    update_doc = {
+        **group_data.model_dump(),
+        "stop_loss": group_data.stop_loss.model_dump() if group_data.stop_loss else existing.get("stop_loss"),
+        "sftp_config": group_data.sftp_config.model_dump() if group_data.sftp_config else existing.get("sftp_config"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.groups.update_one({"id": group_id}, {"$set": update_doc})
+    updated = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    return updated
+
+@api_router.post("/groups/{group_id}/attach-plan")
+async def attach_plan_to_group(group_id: str, plan_id: str = Query(...), user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Attach a plan to a group."""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    plan = await db.plans.find_one({"id": plan_id})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    plan_ids = group.get("plan_ids", [])
+    if plan_id in plan_ids:
+        raise HTTPException(status_code=400, detail="Plan already attached to this group")
+    
+    plan_ids.append(plan_id)
+    await db.groups.update_one({"id": group_id}, {"$set": {"plan_ids": plan_ids, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    
+    # Update the plan's group_id reference
+    await db.plans.update_one({"id": plan_id}, {"$set": {"group_id": group_id}})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "plan_attached_to_group",
+        "user_id": user["id"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "details": {"group_id": group_id, "plan_id": plan_id, "plan_name": plan.get("name", "")}
+    })
+    
+    return {"message": "Plan attached", "group_id": group_id, "plan_id": plan_id}
+
+@api_router.delete("/groups/{group_id}/detach-plan")
+async def detach_plan_from_group(group_id: str, plan_id: str = Query(...), user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Detach a plan from a group."""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    plan_ids = group.get("plan_ids", [])
+    if plan_id not in plan_ids:
+        raise HTTPException(status_code=400, detail="Plan not attached to this group")
+    
+    plan_ids.remove(plan_id)
+    await db.groups.update_one({"id": group_id}, {"$set": {"plan_ids": plan_ids, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"message": "Plan detached", "group_id": group_id, "plan_id": plan_id}
+
+@api_router.put("/groups/{group_id}/stop-loss")
+async def update_stop_loss(group_id: str, stop_loss: StopLossConfig, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Update group stop-loss configuration."""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    await db.groups.update_one({"id": group_id}, {"$set": {"stop_loss": stop_loss.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"message": "Stop-loss updated", "stop_loss": stop_loss.model_dump()}
+
+@api_router.put("/groups/{group_id}/sftp")
+async def update_sftp_config(group_id: str, sftp: SFTPConfig, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Update group SFTP scheduler configuration."""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    await db.groups.update_one({"id": group_id}, {"$set": {"sftp_config": sftp.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"message": "SFTP config updated", "sftp_config": sftp.model_dump()}
+
+@api_router.get("/groups/{group_id}/pulse")
+async def group_pulse_analytics(group_id: str, user: dict = Depends(get_current_user)):
+    """Get group-level Pulse analytics."""
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # Member count
+    member_count = await db.members.count_documents({"group_id": group_id})
+    
+    # Claims for this group's members
+    members = await db.members.find({"group_id": group_id}, {"member_id": 1, "_id": 0}).to_list(100000)
+    member_ids = [m["member_id"] for m in members]
+    
+    total_claims = await db.claims.count_documents({"member_id": {"$in": member_ids}})
+    approved_claims = await db.claims.count_documents({"member_id": {"$in": member_ids}, "status": "approved"})
+    
+    pipeline_financials = [
+        {"$match": {"member_id": {"$in": member_ids}}},
+        {"$group": {
+            "_id": None,
+            "total_billed": {"$sum": "$total_billed"},
+            "total_paid": {"$sum": "$total_paid"},
+            "total_allowed": {"$sum": "$total_allowed"},
+        }}
+    ]
+    fin = await db.claims.aggregate(pipeline_financials).to_list(1)
+    financials = fin[0] if fin else {"total_billed": 0, "total_paid": 0, "total_allowed": 0}
+    
+    # Claims by type
+    pipeline_types = [
+        {"$match": {"member_id": {"$in": member_ids}}},
+        {"$group": {"_id": "$claim_type", "count": {"$sum": 1}, "total_paid": {"$sum": "$total_paid"}}},
+    ]
+    by_type = await db.claims.aggregate(pipeline_types).to_list(10)
+    
+    # Stop-loss surplus calculation
+    stop_loss = group.get("stop_loss") or {}
+    specific_ded = stop_loss.get("specific_deductible", 0)
+    aggregate_att = stop_loss.get("aggregate_attachment_point", 0)
+    total_paid_val = financials.get("total_paid", 0)
+    surplus = max(0, aggregate_att - total_paid_val) if aggregate_att > 0 else 0
+    
+    return {
+        "group_id": group_id,
+        "group_name": group.get("name", ""),
+        "member_count": member_count,
+        "total_claims": total_claims,
+        "approved_claims": approved_claims,
+        "total_billed": round(financials.get("total_billed", 0), 2),
+        "total_paid": round(financials.get("total_paid", 0), 2),
+        "total_savings": round(financials.get("total_billed", 0) - financials.get("total_paid", 0), 2),
+        "claims_by_type": [{"type": c["_id"], "count": c["count"], "paid": round(c["total_paid"], 2)} for c in by_type],
+        "stop_loss": {
+            "specific_deductible": specific_ded,
+            "aggregate_attachment_point": aggregate_att,
+            "total_paid_ytd": round(total_paid_val, 2),
+            "surplus_bucket": round(surplus, 2),
+            "utilization_pct": round(total_paid_val / aggregate_att * 100, 1) if aggregate_att > 0 else 0,
+        },
+        "pmpm": round(total_paid_val / max(member_count, 1), 2),
+    }
+
+
+# ==================== MEC 1 PLAN TEMPLATE ====================
+
+@api_router.post("/plans/template/mec-1")
+async def create_mec1_plan(group_id: str = Query(...), plan_name: str = Query(default="MEC 1 - Standard"), user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Create a pre-configured MEC 1 (Minimum Essential Coverage) plan from the SOB template."""
+    plan_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # MEC 1 per the SOB: $0 deductible, $0 OOP, preventive-only coverage
+    mec1_benefits = [
+        PlanBenefit(service_category="Preventive Care", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Wellness Visit", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Immunization", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Cancer Screening", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Preventive Screening", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Women's Preventive", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Pediatric Preventive", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Behavioral Counseling", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Telemedicine - Preventive", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        PlanBenefit(service_category="Preventive Rx", covered=True, copay=0, coinsurance=0, deductible_applies=False, prior_auth_required=False).model_dump(),
+        # Non-covered services per MEC 1 SOB
+        PlanBenefit(service_category="Primary Care Office Visit", covered=False).model_dump(),
+        PlanBenefit(service_category="Specialist Office Visit", covered=False).model_dump(),
+        PlanBenefit(service_category="Emergency Room", covered=False).model_dump(),
+        PlanBenefit(service_category="Urgent Care", covered=False).model_dump(),
+        PlanBenefit(service_category="Inpatient Hospital", covered=False).model_dump(),
+        PlanBenefit(service_category="Outpatient Surgery", covered=False).model_dump(),
+        PlanBenefit(service_category="Diagnostic Testing", covered=False).model_dump(),
+        PlanBenefit(service_category="Imaging Services", covered=False).model_dump(),
+        PlanBenefit(service_category="DME", covered=False).model_dump(),
+        PlanBenefit(service_category="Mental Health", covered=False).model_dump(),
+        PlanBenefit(service_category="Physical Therapy", covered=False).model_dump(),
+        PlanBenefit(service_category="Chiropractic", covered=False).model_dump(),
+    ]
+    
+    # Extensive exclusion list per MEC 1 SOB
+    mec1_exclusions = [
+        "Abortion", "Acupuncture", "Applied Behavioral Analysis", "Cardiac Rehabilitation",
+        "Chemotherapy", "Chiropractic Care", "Clinical Trials", "Cosmetic Surgery",
+        "Custodial Care", "Dental Care", "Dialysis", "DME", "Gene and Cell Therapy",
+        "Home Health Care", "Hospice Care", "Infusion Therapy", "Infertility",
+        "Long Term Care", "Massage Therapy", "Mental Health (non-preventive)",
+        "Occupational Therapy", "Physical Therapy", "Private Duty Nursing",
+        "Radiation Services", "Skilled Nursing", "Sleep Studies", "Speech Therapy",
+        "Transplant Services", "Allergy Testing", "Genetic Counseling (non-required)",
+    ]
+    
+    plan_doc = {
+        "id": plan_id,
+        "name": plan_name,
+        "plan_type": ClaimType.MEDICAL.value,
+        "group_id": group_id,
+        "effective_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "termination_date": None,
+        "deductible_individual": 0,
+        "deductible_family": 0,
+        "oop_max_individual": 0,
+        "oop_max_family": 0,
+        "network_type": "PPO",
+        "reimbursement_method": "reference_based",
+        "benefits": mec1_benefits,
+        "tier_type": "employee_only",
+        "exclusions": mec1_exclusions,
+        "preventive_design": "aca_strict",
+        "plan_template": "mec_1",
+        "preauth_penalty_pct": 50.0,
+        "non_network_reimbursement": "reference_based",
+        "status": PlanStatus.ACTIVE.value,
+        "version": 1,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": user["id"],
+    }
+    
+    await db.plans.insert_one(plan_doc)
+    
+    # Attach to group if group exists
+    group = await db.groups.find_one({"id": group_id})
+    if group:
+        plan_ids = group.get("plan_ids", [])
+        if plan_id not in plan_ids:
+            plan_ids.append(plan_id)
+            await db.groups.update_one({"id": group_id}, {"$set": {"plan_ids": plan_ids}})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "mec1_plan_created",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"plan_id": plan_id, "plan_name": plan_name, "group_id": group_id}
+    })
+    
+    plan_doc.pop("_id", None)
+    return plan_doc
+
 
 # ==================== CLAIMS ENDPOINTS ====================
 

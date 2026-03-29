@@ -18,6 +18,7 @@ import {
   Globe,
   Database,
   Heart,
+  Briefcase,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -33,6 +34,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Claims', href: '/claims', icon: FileText },
   { name: 'Plans', href: '/plans', icon: Building2 },
+  { name: 'Groups', href: '/groups', icon: Briefcase },
   { name: 'Members', href: '/members', icon: Users },
   { name: 'Prior Auth', href: '/prior-auth', icon: Shield },
   { name: 'Preventive', href: '/preventive', icon: Heart },
