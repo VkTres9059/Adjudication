@@ -248,6 +248,7 @@ class ClaimResponse(BaseModel):
     assigned_to: Optional[str] = None
     assigned_to_name: Optional[str] = None
     assigned_at: Optional[str] = None
+    eligibility_source: Optional[str] = None
 
 
 class DuplicateAlert(BaseModel):

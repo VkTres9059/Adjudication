@@ -479,6 +479,87 @@ async def log_bridge_payment(
     }
 
 
+# ── Manual Hour Entry ──
+
+@router.post("/{member_id}/manual-entry")
+async def manual_hour_entry(
+    member_id: str,
+    hours: float = Query(..., description="Hours to add (positive) or deduct (negative)"),
+    description: str = Query("Manual adjustment", description="Reason for entry"),
+    user: dict = Depends(require_roles([UserRole.ADMIN]))
+):
+    """Manually add or deduct hours from a member's current bucket."""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    plan = await db.plans.find_one(
+        {"id": member.get("plan_id")},
+        {"_id": 0, "eligibility_threshold": 1, "hour_bank_max": 1}
+    )
+    threshold = plan.get("eligibility_threshold", 0) if plan else 0
+    max_bank = plan.get("hour_bank_max", 0) if plan else 0
+
+    bank = await db.hour_bank.find_one({"member_id": member_id}, {"_id": 0})
+    cur = _safe_float(bank, "current_balance")
+    res = _safe_float(bank, "reserve_balance")
+
+    cur += hours
+    if threshold > 0 and cur > threshold:
+        overflow = cur - threshold
+        cur = threshold
+        res += overflow
+        if max_bank > 0:
+            res = min(res, max_bank)
+    cur = max(0, cur)
+    total = round(cur + res, 2)
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.hour_bank_entries.insert_one({
+        "id": str(uuid.uuid4()),
+        "member_id": member_id,
+        "entry_type": "manual_adjustment",
+        "hours": hours,
+        "bucket": "current",
+        "running_balance": total,
+        "current_after": round(cur, 2),
+        "reserve_after": round(res, 2),
+        "description": description,
+        "week_ending": None,
+        "period": None,
+        "source": "manual",
+        "created_at": now,
+        "created_by": user["id"],
+    })
+
+    await db.hour_bank.update_one(
+        {"member_id": member_id},
+        {"$set": {
+            "member_id": member_id,
+            "plan_id": member.get("plan_id", ""),
+            "current_balance": round(cur, 2),
+            "reserve_balance": round(res, 2),
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+
+    # Auto-flip status if now meeting threshold
+    if total >= threshold and member.get("status") == "termed_insufficient_hours":
+        await db.members.update_one(
+            {"member_id": member_id},
+            {"$set": {"status": "active", "updated_at": now}}
+        )
+
+    return {
+        "member_id": member_id,
+        "hours_added": hours,
+        "current_balance": round(cur, 2),
+        "reserve_balance": round(res, 2),
+        "total_balance": total,
+    }
+
+
 # ── Notifications ──
 
 @router.get("/notifications/list")
@@ -492,3 +573,15 @@ async def list_notifications(
         query["read"] = False
     notifs = await db.hour_bank_notifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return notifs
+
+
+@router.put("/notifications/{notif_id}/read")
+async def mark_notification_read(
+    notif_id: str,
+    user: dict = Depends(get_current_user)
+):
+    await db.hour_bank_notifications.update_one(
+        {"id": notif_id},
+        {"$set": {"read": True}}
+    )
+    return {"status": "ok"}

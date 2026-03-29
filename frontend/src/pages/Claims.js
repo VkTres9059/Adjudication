@@ -227,6 +227,7 @@ export default function Claims() {
                 <TableHead className="text-right">Billed</TableHead>
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Source</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -264,6 +265,23 @@ export default function Claims() {
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={claim.status} />
+                  </TableCell>
+                  <TableCell>
+                    {claim.eligibility_source && claim.eligibility_source !== 'standard_hours' ? (
+                      <Badge className={
+                        claim.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                        claim.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                        claim.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                        'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
+                      } data-testid={`elig-source-${claim.id}`}>
+                        {claim.eligibility_source === 'bridge_payment' ? 'Bridge' :
+                         claim.eligibility_source === 'reserve_draw' ? 'Reserve' :
+                         claim.eligibility_source === 'insufficient' ? 'Insufficient' :
+                         claim.eligibility_source?.replace(/_/g, ' ')}
+                      </Badge>
+                    ) : (
+                      <span className="text-[10px] text-[#8A8A85]">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Link to={`/claims/${claim.id}`}>

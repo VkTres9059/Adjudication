@@ -11,6 +11,8 @@ import {
   DollarSign,
   Timer,
   AlertTriangle,
+  ShieldAlert,
+  Activity,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -32,6 +34,12 @@ import {
 } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '../components/ui/tabs';
+import {
   BarChart,
   Bar,
   XAxis,
@@ -51,6 +59,7 @@ export default function Reports() {
   const [claims, setClaims] = useState([]);
   const [fixedCostData, setFixedCostData] = useState([]);
   const [hourBankDeficiency, setHourBankDeficiency] = useState([]);
+  const [predictiveData, setPredictiveData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -61,13 +70,14 @@ export default function Reports() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [metricsRes, statusRes, typeRes, claimsRes, fixedCostRes, hbDefRes] = await Promise.all([
+      const [metricsRes, statusRes, typeRes, claimsRes, fixedCostRes, hbDefRes, predRes] = await Promise.all([
         dashboardAPI.metrics(),
         dashboardAPI.claimsByStatus(),
         dashboardAPI.claimsByType(),
         claimsAPI.list({ limit: 100 }),
         reportsAPI.fixedCostVsClaims(),
         reportsAPI.hourBankDeficiency(),
+        reportsAPI.predictiveEligibility(),
       ]);
       
       setMetrics(metricsRes.data);
@@ -76,6 +86,7 @@ export default function Reports() {
       setClaims(claimsRes.data);
       setFixedCostData(fixedCostRes.data || []);
       setHourBankDeficiency(hbDefRes.data || []);
+      setPredictiveData(predRes.data || null);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load reports');
@@ -488,7 +499,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Hour Bank Deficiency Report */}
+      {/* Hour Bank Deficiency Report — Enhanced */}
       <div className="bg-white rounded-xl border border-[#E2E2DF] p-6" data-testid="hour-bank-deficiency-report">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-[#C9862B]/10 rounded-lg flex items-center justify-center">
@@ -496,7 +507,7 @@ export default function Reports() {
           </div>
           <div>
             <h2 className="text-base font-semibold text-[#1C1C1A] font-['Outfit']">Hour Bank Deficiency</h2>
-            <p className="text-xs text-[#8A8A85]">Members within 20 hours of losing coverage</p>
+            <p className="text-xs text-[#8A8A85]">Members within 20 hours of losing coverage — multi-tier view</p>
           </div>
           {hourBankDeficiency.length > 0 && (
             <Badge variant="destructive" className="ml-auto" data-testid="deficiency-count">{hourBankDeficiency.length} at risk</Badge>
@@ -514,42 +525,156 @@ export default function Reports() {
               <TableRow className="border-[#E2E2DF]">
                 <TableHead>Member</TableHead>
                 <TableHead>Group</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="text-right">Current</TableHead>
+                <TableHead className="text-right">Reserve</TableHead>
+                <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Threshold</TableHead>
-                <TableHead className="text-right">Cushion</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Burn Rate</TableHead>
+                <TableHead className="text-right">Months Left</TableHead>
+                <TableHead>Risk</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {hourBankDeficiency.map((m) => (
-                <TableRow key={m.member_id} className="table-row" data-testid={`deficiency-row-${m.member_id}`}>
+                <TableRow key={m.member_id} className="table-row h-[48px]" data-testid={`deficiency-row-${m.member_id}`}>
                   <TableCell>
                     <p className="text-sm font-medium">{m.first_name} {m.last_name}</p>
                     <p className="text-[10px] text-[#8A8A85] font-['JetBrains_Mono']">{m.member_id}</p>
                   </TableCell>
                   <TableCell className="text-xs">{m.group_name || m.group_id}</TableCell>
-                  <TableCell className="text-xs">{m.plan_name}</TableCell>
-                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">
-                    <span className={m.current_balance < 0 ? 'text-[#C24A3B] font-bold' : ''}>{m.current_balance.toFixed(1)} hrs</span>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{m.current_balance?.toFixed(1) ?? '—'}</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#4A6FA5]">{m.reserve_balance?.toFixed(1) ?? '0.0'}</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums font-semibold">
+                    <span className={m.total_balance < m.threshold ? 'text-[#C24A3B]' : ''}>{m.total_balance?.toFixed(1) ?? m.current_balance?.toFixed(1)}</span>
                   </TableCell>
-                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{m.threshold} hrs</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{m.threshold}</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#C9862B]">{m.burn_rate?.toFixed(1) ?? '—'}/mo</TableCell>
                   <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">
-                    <span className={`font-bold ${m.cushion < 0 ? 'text-[#C24A3B]' : m.cushion < 10 ? 'text-[#C9862B]' : 'text-[#64645F]'}`}>
-                      {m.cushion.toFixed(1)} hrs
+                    <span className={`font-bold ${(m.months_remaining ?? 999) < 2 ? 'text-[#C24A3B]' : (m.months_remaining ?? 999) < 4 ? 'text-[#C9862B]' : 'text-[#64645F]'}`}>
+                      {(m.months_remaining ?? 999) > 99 ? '99+' : m.months_remaining?.toFixed(1)}
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={m.status === 'termed_insufficient_hours' ? 'destructive' : 'outline'} className="text-[10px]" data-testid={`deficiency-status-${m.member_id}`}>
-                      {m.status === 'termed_insufficient_hours' ? (
-                        <><AlertTriangle className="h-3 w-3 mr-1" />Termed</>
-                      ) : 'Active'}
-                    </Badge>
+                    {m.status === 'termed_insufficient_hours' ? (
+                      <Badge className="bg-[#C24A3B] text-white border-0 text-[10px]" data-testid={`deficiency-status-${m.member_id}`}>
+                        <AlertTriangle className="h-3 w-3 mr-1" />Termed
+                      </Badge>
+                    ) : m.at_risk ? (
+                      <Badge className="bg-[#C9862B] text-white border-0 text-[10px]" data-testid={`deficiency-status-${m.member_id}`}>
+                        <ShieldAlert className="h-3 w-3 mr-1" />At Risk
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]" data-testid={`deficiency-status-${m.member_id}`}>Active</Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+        )}
+      </div>
+
+      {/* Predictive Eligibility Dashboard */}
+      <div className="bg-white rounded-xl border border-[#E2E2DF] p-6" data-testid="predictive-eligibility-dashboard">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-[#1A3636]/10 rounded-lg flex items-center justify-center">
+            <Activity className="h-5 w-5 text-[#1A3636]" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-[#1C1C1A] font-['Outfit']">Predictive Eligibility</h2>
+            <p className="text-xs text-[#8A8A85]">All hour bank members — burn rate, risk flag, and eligibility source tracking</p>
+          </div>
+        </div>
+
+        {predictiveData ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="metric-card h-[80px]">
+                <span className="metric-label">Total Members</span>
+                <p className="metric-value tabular-nums">{predictiveData.summary.total}</p>
+              </div>
+              <div className="metric-card h-[80px]">
+                <span className="metric-label text-[#4B6E4E]">Healthy</span>
+                <p className="metric-value tabular-nums text-[#4B6E4E]">{predictiveData.summary.healthy}</p>
+              </div>
+              <div className="metric-card h-[80px]">
+                <span className="metric-label text-[#C9862B]">At Risk (&lt; 2x threshold)</span>
+                <p className="metric-value tabular-nums text-[#C9862B]">{predictiveData.summary.at_risk}</p>
+              </div>
+              <div className="metric-card h-[80px]">
+                <span className="metric-label text-[#C24A3B]">Critical (&lt; 10 hrs cushion)</span>
+                <p className="metric-value tabular-nums text-[#C24A3B]">{predictiveData.summary.critical}</p>
+              </div>
+            </div>
+
+            {predictiveData.members.length === 0 ? (
+              <div className="bg-[#F7F7F4] rounded-lg p-8 text-center">
+                <Activity className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+                <p className="text-sm text-[#8A8A85]">No members enrolled in hour-bank eligible plans</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-[#E2E2DF]">
+                    <TableHead>Member</TableHead>
+                    <TableHead>Group</TableHead>
+                    <TableHead className="text-right">Current</TableHead>
+                    <TableHead className="text-right">Reserve</TableHead>
+                    <TableHead className="text-right">Burn Rate</TableHead>
+                    <TableHead className="text-right">Months Left</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Risk</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {predictiveData.members.map((m) => (
+                    <TableRow key={m.member_id} className="table-row h-[48px]" data-testid={`pred-row-${m.member_id}`}>
+                      <TableCell>
+                        <p className="text-sm font-medium">{m.first_name} {m.last_name}</p>
+                        <p className="text-[10px] text-[#8A8A85] font-['JetBrains_Mono']">{m.member_id}</p>
+                      </TableCell>
+                      <TableCell className="text-xs">{m.group_name || '—'}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{m.current_balance.toFixed(1)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#4A6FA5]">{m.reserve_balance.toFixed(1)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums text-[#C9862B]">{m.burn_rate.toFixed(1)}/mo</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">
+                        <span className={`font-bold ${m.months_remaining < 2 ? 'text-[#C24A3B]' : m.months_remaining < 4 ? 'text-[#C9862B]' : 'text-[#64645F]'}`}>
+                          {m.months_remaining > 99 ? '99+' : m.months_remaining.toFixed(1)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          m.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                          m.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                          m.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                          'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
+                        } data-testid={`pred-source-${m.member_id}`}>
+                          {m.eligibility_source === 'bridge_payment' ? 'Bridge' :
+                           m.eligibility_source === 'reserve_draw' ? 'Reserve' :
+                           m.eligibility_source === 'insufficient' ? 'Insuff.' :
+                           'Standard'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {m.critical ? (
+                          <Badge className="bg-[#C24A3B] text-white border-0 text-[10px]">Critical</Badge>
+                        ) : m.at_risk ? (
+                          <Badge className="bg-[#C9862B] text-white border-0 text-[10px]">At Risk</Badge>
+                        ) : (
+                          <Badge className="bg-[#4B6E4E] text-white border-0 text-[10px]">Healthy</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </>
+        ) : (
+          <div className="bg-[#F7F7F4] rounded-lg p-8 text-center">
+            <Activity className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+            <p className="text-sm text-[#8A8A85]">Loading predictive eligibility data...</p>
+          </div>
         )}
       </div>
     </div>

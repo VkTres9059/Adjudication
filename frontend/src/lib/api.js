@@ -106,6 +106,7 @@ export const dashboardAPI = {
 export const reportsAPI = {
   fixedCostVsClaims: () => api.get('/reports/fixed-cost-vs-claims'),
   hourBankDeficiency: () => api.get('/reports/hour-bank-deficiency'),
+  predictiveEligibility: () => api.get('/reports/predictive-eligibility'),
 };
 
 export const ediAPI = {
@@ -160,6 +161,8 @@ export const batchAPI = {
 export const settingsAPI = {
   getGateway: () => api.get('/settings/adjudication-gateway'),
   updateGateway: (data) => api.put('/settings/adjudication-gateway', data),
+  getBridge: () => api.get('/settings/bridge-payment'),
+  updateBridge: (data) => api.put('/settings/bridge-payment', data),
 };
 
 export const examinerAPI = {
@@ -186,4 +189,9 @@ export const hourBankAPI = {
     });
   },
   runMonthly: (period) => api.post('/hour-bank/run-monthly', null, { params: period ? { period } : {} }),
+  manualEntry: (memberId, hours, description) =>
+    api.post(`/hour-bank/${memberId}/manual-entry`, null, { params: { hours, description } }),
+  bridgePayment: (memberId) => api.post(`/hour-bank/${memberId}/bridge-payment`),
+  notifications: (unreadOnly = true) => api.get('/hour-bank/notifications/list', { params: { unread_only: unreadOnly } }),
+  markRead: (notifId) => api.put(`/hour-bank/notifications/${notifId}/read`),
 };

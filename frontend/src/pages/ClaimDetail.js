@@ -219,6 +219,19 @@ export default function ClaimDetail() {
               {claim.carrier_notification && (
                 <Badge className="bg-[#2563EB] text-white border-0 text-[10px]" data-testid="carrier-notification-badge"><Bell className="h-2.5 w-2.5 mr-0.5" />Carrier Notified</Badge>
               )}
+              {claim.eligibility_source && claim.eligibility_source !== 'standard_hours' && (
+                <Badge className={
+                  claim.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                  claim.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                  claim.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                  'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
+                } data-testid="eligibility-source-badge">
+                  {claim.eligibility_source === 'bridge_payment' ? 'Bridge Payment' :
+                   claim.eligibility_source === 'reserve_draw' ? 'Reserve Draw' :
+                   claim.eligibility_source === 'insufficient' ? 'Hour Bank Insufficient' :
+                   claim.eligibility_source?.replace(/_/g, ' ')}
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-[#64645F] font-['JetBrains_Mono'] mt-1">{claim.claim_number}</p>
           </div>

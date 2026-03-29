@@ -586,31 +586,146 @@ export default function Members() {
                     <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">Loading hour bank...</p></div>
                   ) : hourBankData ? (
                     <div className="space-y-4">
-                      {/* Balance Summary - fixed height to prevent jitter */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="hour-bank-summary">
+                      {/* Multi-Tier Balance Summary — fixed height to prevent jitter */}
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3" data-testid="hour-bank-summary">
                         <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
-                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Remaining Balance</p>
-                          <p className={`text-lg font-bold tabular-nums ${hourBankData.current_balance < 0 ? 'text-[#C24A3B]' : 'text-[#1A3636]'}`} data-testid="hour-bank-balance">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Current</p>
+                          <p className={`text-lg font-bold tabular-nums ${hourBankData.current_balance < 0 ? 'text-[#C24A3B]' : 'text-[#1A3636]'}`} data-testid="hour-bank-current">
                             {hourBankData.current_balance.toFixed(1)} hrs
                           </p>
                         </div>
                         <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
-                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Monthly Threshold</p>
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Reserve</p>
+                          <p className="text-lg font-bold tabular-nums text-[#4A6FA5]" data-testid="hour-bank-reserve">
+                            {hourBankData.reserve_balance.toFixed(1)} hrs
+                          </p>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Threshold</p>
                           <p className="text-lg font-bold tabular-nums text-[#1C1C1A]" data-testid="hour-bank-threshold">
                             {hourBankData.threshold > 0 ? `${hourBankData.threshold} hrs` : '—'}
                           </p>
                         </div>
                         <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
-                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Max Bank</p>
-                          <p className="text-lg font-bold tabular-nums text-[#1C1C1A]" data-testid="hour-bank-max">
-                            {hourBankData.max_bank > 0 ? `${hourBankData.max_bank} hrs` : '—'}
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Burn Rate</p>
+                          <p className="text-lg font-bold tabular-nums text-[#C9862B]" data-testid="hour-bank-burn-rate">
+                            {hourBankData.burn_rate.toFixed(1)}/mo
                           </p>
                         </div>
                         <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
-                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Cushion</p>
-                          <p className={`text-lg font-bold tabular-nums ${hourBankData.hours_until_deficit < 20 ? 'text-[#C24A3B]' : hourBankData.hours_until_deficit < 50 ? 'text-[#C9862B]' : 'text-[#1A3636]'}`} data-testid="hour-bank-cushion">
-                            {hourBankData.threshold > 0 ? `${hourBankData.hours_until_deficit.toFixed(1)} hrs` : '—'}
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Months Left</p>
+                          <p className={`text-lg font-bold tabular-nums ${hourBankData.months_remaining < 2 ? 'text-[#C24A3B]' : hourBankData.months_remaining < 4 ? 'text-[#C9862B]' : 'text-[#4B6E4E]'}`} data-testid="hour-bank-months">
+                            {hourBankData.months_remaining > 99 ? '99+' : hourBankData.months_remaining.toFixed(1)}
                           </p>
+                        </div>
+                      </div>
+
+                      {/* At Risk / Eligibility Source badges */}
+                      <div className="flex items-center gap-2 h-[28px]" data-testid="hour-bank-status-row">
+                        {hourBankData.at_risk && (
+                          <Badge className="bg-[#C24A3B] text-white border-0 text-[10px]" data-testid="at-risk-badge">
+                            <AlertTriangle className="h-3 w-3 mr-1" />At Risk
+                          </Badge>
+                        )}
+                        <Badge className={
+                          hourBankData.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                          hourBankData.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                          hourBankData.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
+                          'bg-[#4B6E4E] text-white border-0 text-[10px]'
+                        } data-testid="eligibility-source-badge">
+                          {hourBankData.eligibility_source === 'bridge_payment' ? 'Bridge Payment' :
+                           hourBankData.eligibility_source === 'reserve_draw' ? 'Reserve Draw' :
+                           hourBankData.eligibility_source === 'insufficient' ? 'Insufficient' :
+                           'Standard Hours'}
+                        </Badge>
+                        <span className="text-[10px] text-[#8A8A85] ml-auto tabular-nums">Total: {hourBankData.total_balance.toFixed(1)} hrs</span>
+                      </div>
+
+                      {/* Bridge Payment Card */}
+                      {hourBankData.bridge.enabled && hourBankData.bridge.eligible && (
+                        <div className="bg-[#F3EBF9] border border-[#5C2D91]/30 rounded-lg p-4" data-testid="bridge-payment-card">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <DollarSign className="h-4 w-4 text-[#5C2D91]" />
+                                <p className="text-sm font-medium text-[#5C2D91]">Bridge Payment Available</p>
+                              </div>
+                              <p className="text-xs text-[#64645F] mt-1">
+                                Member is <span className="font-semibold tabular-nums">{hourBankData.bridge.hours_short.toFixed(1)} hrs</span> short.
+                                Cost: <span className="font-['JetBrains_Mono'] font-semibold">${hourBankData.bridge.cost.toFixed(2)}</span> at ${hourBankData.bridge.rate_per_hour}/hr.
+                              </p>
+                            </div>
+                            <Button
+                              onClick={async () => {
+                                setSaving(true);
+                                try {
+                                  const res = await hourBankAPI.bridgePayment(selectedMember.member_id);
+                                  toast.success(`Bridge payment logged: +${res.data.hours_added.toFixed(1)} hrs, $${res.data.cost.toFixed(2)} — Status: Active`);
+                                  fetchHourBank(selectedMember.member_id);
+                                } catch (err) { toast.error(err.response?.data?.detail || 'Bridge payment failed'); }
+                                finally { setSaving(false); }
+                              }}
+                              disabled={saving}
+                              size="sm"
+                              className="bg-[#5C2D91] hover:bg-[#4a2475] text-white text-xs flex-shrink-0"
+                              data-testid="execute-bridge-btn"
+                            >
+                              {saving ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <ArrowRight className="h-3 w-3 mr-1" />}
+                              Execute Bridge
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Manual Hour Entry Form */}
+                      <div className="bg-[#F7F7F4] rounded-lg p-3" data-testid="manual-entry-form">
+                        <p className="text-xs font-medium text-[#64645F] mb-2">Manual Entry</p>
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1 space-y-1">
+                            <Label className="text-[10px]">Hours</Label>
+                            <Input
+                              type="number"
+                              step="0.5"
+                              placeholder="e.g. 8.0"
+                              className="input-field h-8 text-xs"
+                              data-testid="manual-hours-input"
+                              id="manual-hours"
+                            />
+                          </div>
+                          <div className="flex-[2] space-y-1">
+                            <Label className="text-[10px]">Description</Label>
+                            <Input
+                              placeholder="Reason for adjustment"
+                              className="input-field h-8 text-xs"
+                              data-testid="manual-desc-input"
+                              id="manual-desc"
+                            />
+                          </div>
+                          <Button
+                            onClick={async () => {
+                              const hoursEl = document.getElementById('manual-hours');
+                              const descEl = document.getElementById('manual-desc');
+                              const hrs = parseFloat(hoursEl?.value);
+                              const desc = descEl?.value || 'Manual adjustment';
+                              if (!hrs || isNaN(hrs)) { toast.error('Enter valid hours'); return; }
+                              setSaving(true);
+                              try {
+                                await hourBankAPI.manualEntry(selectedMember.member_id, hrs, desc);
+                                toast.success(`${hrs > 0 ? '+' : ''}${hrs} hours logged`);
+                                if (hoursEl) hoursEl.value = '';
+                                if (descEl) descEl.value = '';
+                                fetchHourBank(selectedMember.member_id);
+                              } catch (err) { toast.error(err.response?.data?.detail || 'Failed to add hours'); }
+                              finally { setSaving(false); }
+                            }}
+                            disabled={saving}
+                            size="sm"
+                            className="btn-primary h-8 text-xs"
+                            data-testid="submit-manual-entry-btn"
+                          >
+                            {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
+                            Add
+                          </Button>
                         </div>
                       </div>
 
@@ -628,22 +743,28 @@ export default function Members() {
                                 <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
                                   entry.entry_type === 'work_hours' ? 'bg-[#2D6A4F]' :
                                   entry.entry_type === 'monthly_deduction' ? 'bg-[#C24A3B]' :
+                                  entry.entry_type === 'bridge_payment' ? 'bg-[#5C2D91]' :
+                                  entry.entry_type === 'manual_adjustment' ? 'bg-[#C9862B]' :
                                   'bg-[#4A6FA5]'
                                 }`}>
                                   {entry.entry_type === 'work_hours' ? <TrendingUp className="h-3 w-3 text-white" /> :
                                    entry.entry_type === 'monthly_deduction' ? <TrendingDown className="h-3 w-3 text-white" /> :
+                                   entry.entry_type === 'bridge_payment' ? <DollarSign className="h-3 w-3 text-white" /> :
                                    <Minus className="h-3 w-3 text-white" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-medium text-[#1C1C1A] truncate">{entry.description}</p>
                                 </div>
+                                <div className="text-right flex-shrink-0 w-16">
+                                  <p className="text-[10px] tabular-nums text-[#8A8A85]">C:{entry.current_after?.toFixed(1) ?? '—'}</p>
+                                </div>
+                                <div className="text-right flex-shrink-0 w-16">
+                                  <p className="text-[10px] tabular-nums text-[#8A8A85]">R:{entry.reserve_after?.toFixed(1) ?? '—'}</p>
+                                </div>
                                 <div className="text-right flex-shrink-0 w-20">
                                   <p className={`text-xs font-bold tabular-nums ${entry.hours >= 0 ? 'text-[#2D6A4F]' : 'text-[#C24A3B]'}`}>
                                     {entry.hours >= 0 ? '+' : ''}{entry.hours.toFixed(1)}
                                   </p>
-                                </div>
-                                <div className="text-right flex-shrink-0 w-20">
-                                  <p className="text-xs tabular-nums text-[#64645F]">Bal: {entry.running_balance.toFixed(1)}</p>
                                 </div>
                               </div>
                             ))}

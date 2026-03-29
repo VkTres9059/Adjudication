@@ -58,6 +58,56 @@ async def process_new_claim(claim_data_dict: dict, service_lines_dicts: list, us
     if not plan:
         return None
 
+    # ── Hour Bank Gatekeeper ──
+    # If plan has an eligibility_threshold, check hour bank before adjudicating
+    eligibility_threshold = plan.get("eligibility_threshold", 0)
+    eligibility_source = "standard_hours"
+    if eligibility_threshold > 0:
+        bank = await db.hour_bank.find_one({"member_id": member["member_id"]}, {"_id": 0})
+        cur = float(bank.get("current_balance", 0)) if bank else 0.0
+        res = float(bank.get("reserve_balance", 0)) if bank else 0.0
+        total = cur + res
+        if bank:
+            eligibility_source = bank.get("eligibility_source", "standard_hours")
+
+        if total < eligibility_threshold and member.get("status") == "termed_insufficient_hours":
+            # Short on hours → route to examiner queue with Eligibility Hold
+            claim_doc = {
+                "id": claim_id,
+                "claim_number": claim_number,
+                **claim_data_dict,
+                "service_lines": service_lines_dicts,
+                "total_allowed": 0,
+                "total_paid": 0,
+                "member_responsibility": claim_data_dict["total_billed"],
+                "status": ClaimStatus.PENDING_REVIEW.value,
+                "duplicate_info": None,
+                "adjudication_notes": [
+                    f"ELIGIBILITY HOLD: Member {claim_data_dict['member_id']} has {total:.1f} hrs (threshold: {eligibility_threshold} hrs). "
+                    f"Coverage suspended — routed to examiner queue. Bridge payment or additional hours required."
+                ],
+                "eligibility_source": "insufficient",
+                "created_at": now,
+                "created_by": user["id"],
+                "adjudicated_at": None,
+            }
+            assignment = await auto_assign_examiner(claim_data_dict.get("total_billed", 0))
+            if assignment:
+                claim_doc.update(assignment)
+                claim_doc["adjudication_notes"].append(
+                    f"AUTO-ASSIGNED to {assignment.get('assigned_to_name', 'Unknown')} for eligibility review."
+                )
+            await db.claims.insert_one(claim_doc)
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()),
+                "action": "claim_eligibility_hold",
+                "user_id": user["id"],
+                "details": {"claim_id": claim_id, "member_id": claim_data_dict["member_id"], "balance": total, "threshold": eligibility_threshold},
+                "timestamp": now
+            })
+            result = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+            return result
+
     claim_doc = {
         "id": claim_id,
         "claim_number": claim_number,
@@ -69,6 +119,7 @@ async def process_new_claim(claim_data_dict: dict, service_lines_dicts: list, us
         "status": ClaimStatus.PENDING.value,
         "duplicate_info": None,
         "adjudication_notes": [],
+        "eligibility_source": eligibility_source,
         "created_at": now,
         "created_by": user["id"],
         "adjudicated_at": None
