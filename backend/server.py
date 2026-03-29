@@ -364,6 +364,9 @@ class ClaimResponse(BaseModel):
     tier_level: Optional[int] = None
     carrier_notification: Optional[bool] = None
     eligibility_deadline: Optional[str] = None
+    assigned_to: Optional[str] = None
+    assigned_to_name: Optional[str] = None
+    assigned_at: Optional[str] = None
 
 class DuplicateAlert(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1816,6 +1819,46 @@ async def create_mec1_plan(group_id: str = Query(...), plan_name: str = Query(de
 
 # ==================== CLAIMS ENDPOINTS ====================
 
+async def auto_assign_examiner(claim_amount: float) -> dict:
+    """Auto-assign claim to examiner with fewest open claims, routed by authority level."""
+    if claim_amount >= 5000:
+        target_role = "admin"
+    else:
+        target_role = "adjudicator"
+    
+    examiners = await db.users.find(
+        {"role": target_role},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(500)
+    
+    if not examiners:
+        examiners = await db.users.find(
+            {"role": "admin"},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+        ).to_list(500)
+    
+    if not examiners:
+        return {}
+    
+    best = None
+    best_count = float('inf')
+    for ex in examiners:
+        count = await db.claims.count_documents({
+            "assigned_to": ex["id"],
+            "status": {"$in": ["pending_review", "managerial_hold", "pended", "in_review"]}
+        })
+        if count < best_count:
+            best_count = count
+            best = ex
+    
+    if best:
+        return {
+            "assigned_to": best["id"],
+            "assigned_to_name": best.get("name", best["email"]),
+            "assigned_at": datetime.now(timezone.utc).isoformat(),
+        }
+    return {}
+
 @api_router.post("/claims", response_model=ClaimResponse)
 async def create_claim(claim_data: ClaimCreate, user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
     # Verify member exists
@@ -1958,6 +2001,13 @@ async def create_claim(claim_data: ClaimCreate, user: dict = Depends(require_rol
                 claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
                     f"TIER 3 (Hard Hold): ${check_amount:.2f} exceeds ${tier2_limit:.2f} threshold. Requires examiner review and digital signature."
                 ]
+                # Auto-assign to examiner
+                assignment = await auto_assign_examiner(check_amount)
+                if assignment:
+                    claim_doc.update(assignment)
+                    claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                        f"AUTO-ASSIGNED to {assignment.get('assigned_to_name', 'Unknown')} ({'Senior' if check_amount >= 5000 else 'Junior'} Examiner)."
+                    ]
     
     await db.claims.insert_one(claim_doc)
     
@@ -2138,6 +2188,12 @@ async def place_claim_on_hold(claim_id: str, hold: HoldRequest, user: dict = Dep
         "adjudication_notes": notes,
     }})
     
+    # Auto-assign if not already assigned
+    if not claim.get("assigned_to"):
+        assignment = await auto_assign_examiner(claim.get("total_billed", 0))
+        if assignment:
+            await db.claims.update_one({"id": claim_id}, {"$set": assignment})
+    
     await db.audit_logs.insert_one({
         "id": str(uuid.uuid4()),
         "action": "claim_hold_placed",
@@ -2303,6 +2359,198 @@ async def flag_carrier_notification(claim_id: str, notes: Optional[str] = Query(
     
     updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
     return ClaimResponse(**updated)
+
+# ==================== EXAMINER QUEUE & ASSIGNMENT ====================
+
+@api_router.get("/examiner/queue")
+async def get_examiner_queue(user: dict = Depends(get_current_user)):
+    """Get claims assigned to the current user or all reviewable claims (for admin)."""
+    query = {
+        "status": {"$in": [ClaimStatus.PENDING_REVIEW.value, ClaimStatus.MANAGERIAL_HOLD.value]}
+    }
+    if user["role"] != "admin":
+        query["assigned_to"] = user["id"]
+    
+    claims = await db.claims.find(query, {"_id": 0, "created_by": 0}).sort("created_at", 1).to_list(1000)
+    
+    now = datetime.now(timezone.utc)
+    result = []
+    for c in claims:
+        created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")) if c.get("created_at") else now
+        days_in_queue = max(0, (now - created).total_seconds() / 86400)
+        c["days_in_queue"] = round(days_in_queue, 1)
+        result.append(c)
+    
+    # Sort: oldest first, then highest dollar
+    result.sort(key=lambda x: (-x["days_in_queue"], -x.get("total_billed", 0)))
+    
+    return result
+
+@api_router.get("/examiner/queue/all")
+async def get_all_examiner_queues(user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Admin view: all claims in review with assignment info, grouped by examiner."""
+    claims = await db.claims.find(
+        {"status": {"$in": [ClaimStatus.PENDING_REVIEW.value, ClaimStatus.MANAGERIAL_HOLD.value]}},
+        {"_id": 0, "created_by": 0}
+    ).sort("created_at", 1).to_list(5000)
+    
+    now = datetime.now(timezone.utc)
+    for c in claims:
+        created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")) if c.get("created_at") else now
+        c["days_in_queue"] = round(max(0, (now - created).total_seconds() / 86400), 1)
+    
+    return claims
+
+@api_router.post("/claims/{claim_id}/reassign")
+async def reassign_claim(claim_id: str, examiner_id: str = Query(...), user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Admin: Reassign a claim to a different examiner."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    examiner = await db.users.find_one({"id": examiner_id}, {"_id": 0})
+    if not examiner:
+        raise HTTPException(status_code=404, detail="Examiner not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    old_assignee = claim.get("assigned_to_name", "Unassigned")
+    new_assignee = examiner.get("name", examiner["email"])
+    
+    notes = claim.get("adjudication_notes", []) + [
+        f"REASSIGNED by {user.get('name', user['email'])}: {old_assignee} → {new_assignee}"
+    ]
+    
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "assigned_to": examiner_id,
+        "assigned_to_name": new_assignee,
+        "assigned_at": now,
+        "adjudication_notes": notes,
+    }})
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": "claim_reassigned",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "from": old_assignee, "to": new_assignee}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+@api_router.post("/examiner/queue/{claim_id}/quick-action")
+async def examiner_quick_action(claim_id: str, action: str = Query(...), notes: str = Query(default=""), user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))):
+    """One-click adjudication from the examiner queue: approve, deny, request_info."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    adj_notes = claim.get("adjudication_notes", [])
+    
+    if action == "approve":
+        adj_notes.append(f"QUICK APPROVED by {user.get('name', user['email'])} from Examiner Queue." + (f" Notes: {notes}" if notes else ""))
+        await db.claims.update_one({"id": claim_id}, {"$set": {
+            "status": ClaimStatus.APPROVED.value,
+            "adjudication_notes": adj_notes,
+            "adjudicated_at": now,
+        }})
+    elif action == "deny":
+        adj_notes.append(f"QUICK DENIED by {user.get('name', user['email'])} from Examiner Queue." + (f" Notes: {notes}" if notes else ""))
+        await db.claims.update_one({"id": claim_id}, {"$set": {
+            "status": ClaimStatus.DENIED.value,
+            "adjudication_notes": adj_notes,
+            "adjudicated_at": now,
+        }})
+    elif action == "request_info":
+        adj_notes.append(f"INFO REQUESTED by {user.get('name', user['email'])}." + (f" Notes: {notes}" if notes else ""))
+        await db.claims.update_one({"id": claim_id}, {"$set": {
+            "status": ClaimStatus.PENDED.value,
+            "adjudication_notes": adj_notes,
+        }})
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use: approve, deny, request_info")
+    
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "action": f"examiner_quick_{action}",
+        "user_id": user["id"],
+        "timestamp": now,
+        "details": {"claim_id": claim_id, "claim_number": claim.get("claim_number", "")}
+    })
+    
+    updated = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+    return ClaimResponse(**updated)
+
+@api_router.get("/examiner/performance")
+async def examiner_performance(user: dict = Depends(get_current_user)):
+    """Examiner performance metrics: avg TAT and claims closed today per examiner."""
+    examiners = await db.users.find(
+        {"role": {"$in": ["admin", "adjudicator"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(500)
+    
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    
+    results = []
+    for ex in examiners:
+        # Claims closed today (adjudicated_at is today and assigned_to is this examiner)
+        closed_today = await db.claims.count_documents({
+            "adjudicated_at": {"$gte": today_start},
+            "status": {"$in": [ClaimStatus.APPROVED.value, ClaimStatus.DENIED.value]},
+            "$or": [{"assigned_to": ex["id"]}, {"assigned_to": {"$exists": False}}]
+        })
+        
+        # Open claims in queue
+        open_claims = await db.claims.count_documents({
+            "assigned_to": ex["id"],
+            "status": {"$in": [ClaimStatus.PENDING_REVIEW.value, ClaimStatus.MANAGERIAL_HOLD.value, ClaimStatus.PENDED.value]}
+        })
+        
+        # Average TAT (from created_at to adjudicated_at for recent claims)
+        pipeline = [
+            {"$match": {
+                "assigned_to": ex["id"],
+                "adjudicated_at": {"$ne": None},
+                "status": {"$in": ["approved", "denied"]}
+            }},
+            {"$limit": 50},
+            {"$project": {
+                "tat_hours": {
+                    "$divide": [
+                        {"$subtract": [
+                            {"$dateFromString": {"dateString": "$adjudicated_at"}},
+                            {"$dateFromString": {"dateString": "$created_at"}}
+                        ]},
+                        3600000
+                    ]
+                }
+            }},
+            {"$group": {"_id": None, "avg_tat": {"$avg": "$tat_hours"}}}
+        ]
+        tat_result = await db.claims.aggregate(pipeline).to_list(1)
+        avg_tat = round(tat_result[0]["avg_tat"], 1) if tat_result else 0
+        
+        results.append({
+            "examiner_id": ex["id"],
+            "examiner_name": ex.get("name", ex["email"]),
+            "role": ex["role"],
+            "open_claims": open_claims,
+            "closed_today": closed_today,
+            "avg_tat_hours": avg_tat,
+        })
+    
+    results.sort(key=lambda x: x["open_claims"])
+    return results
+
+@api_router.get("/examiner/list")
+async def list_examiners(user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """List all examiners for the reassignment dropdown."""
+    examiners = await db.users.find(
+        {"role": {"$in": ["admin", "adjudicator"]}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}
+    ).to_list(500)
+    return examiners
 
 @api_router.get("/duplicates", response_model=List[DuplicateAlert])
 async def list_duplicate_alerts(

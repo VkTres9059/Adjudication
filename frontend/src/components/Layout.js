@@ -19,6 +19,7 @@ import {
   Database,
   Heart,
   Briefcase,
+  ClipboardList,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -42,6 +43,7 @@ const navigation = [
   { name: 'Code Database', href: '/code-database', icon: Database },
   { name: 'Fee Schedule', href: '/fee-schedule', icon: Calculator },
   { name: 'Duplicates', href: '/duplicates', icon: AlertTriangle },
+  { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
   { name: 'Reports', href: '/reports', icon: BarChart3 },
 ];
 

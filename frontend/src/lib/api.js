@@ -167,4 +167,10 @@ export const examinerAPI = {
   forcePreventive: (claimId, notes) => api.post(`/claims/${claimId}/force-preventive`, null, { params: { notes } }),
   adjustDeductible: (claimId, amount, notes) => api.post(`/claims/${claimId}/adjust-deductible`, null, { params: { amount, notes } }),
   carrierNotification: (claimId, notes) => api.post(`/claims/${claimId}/carrier-notification`, null, { params: { notes } }),
+  getQueue: () => api.get('/examiner/queue'),
+  getAllQueues: () => api.get('/examiner/queue/all'),
+  quickAction: (claimId, action, notes) => api.post(`/examiner/queue/${claimId}/quick-action`, null, { params: { action, notes } }),
+  reassign: (claimId, examinerId) => api.post(`/claims/${claimId}/reassign`, null, { params: { examiner_id: examinerId } }),
+  performance: () => api.get('/examiner/performance'),
+  listExaminers: () => api.get('/examiner/list'),
 };

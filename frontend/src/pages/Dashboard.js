@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardAPI } from '../lib/api';
+import { examinerAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -44,6 +45,7 @@ export default function Dashboard() {
   const [claimsByStatus, setClaimsByStatus] = useState([]);
   const [claimsByType, setClaimsByType] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [examinerPerf, setExaminerPerf] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboardData = async () => {
@@ -59,6 +61,12 @@ export default function Dashboard() {
       setClaimsByStatus(statusRes.data);
       setClaimsByType(typeRes.data);
       setRecentActivity(activityRes.data);
+      
+      // Fetch examiner performance
+      try {
+        const perfRes = await examinerAPI.performance();
+        setExaminerPerf(perfRes.data);
+      } catch {}
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard');
@@ -369,6 +377,46 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Examiner Performance Widget */}
+      {examinerPerf.length > 0 && (
+        <div className="container-card" data-testid="examiner-performance">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
+              Examiner Performance
+            </h3>
+            <Link to="/examiner-queue" className="text-sm text-[#1A3636] hover:text-[#2A4B4B] font-medium">
+              Open Queue
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {examinerPerf.map((ex) => (
+              <div key={ex.examiner_id} className="bg-[#F7F7F4] rounded-lg p-4" data-testid={`perf-${ex.examiner_id}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-[#1C1C1A] truncate">{ex.examiner_name}</p>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${ex.role === 'admin' ? 'bg-[#1A3636] text-white' : 'bg-[#F0F0EA] text-[#64645F]'}`}>
+                    {ex.role === 'admin' ? 'Senior' : 'Junior'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[10px] text-[#8A8A85] uppercase">Open</p>
+                    <p className="text-lg font-semibold font-['Outfit'] text-[#1C1C1A]">{ex.open_claims}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-[#8A8A85] uppercase">Closed Today</p>
+                    <p className="text-lg font-semibold font-['Outfit'] text-[#4B6E4E]">{ex.closed_today}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-[#8A8A85] uppercase">Avg TAT</p>
+                    <p className="text-lg font-semibold font-['JetBrains_Mono'] text-[#C9862B]">{ex.avg_tat_hours}h</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent Activity */}
       <div className="container-card" data-testid="recent-activity">
