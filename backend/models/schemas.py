@@ -63,6 +63,8 @@ class PlanCreate(BaseModel):
     plan_template: Optional[str] = None
     preauth_penalty_pct: float = 50.0
     non_network_reimbursement: str = "reference_based"
+    eligibility_threshold: float = 0
+    hour_bank_max: float = 0
 
 
 class StopLossConfig(BaseModel):
@@ -153,6 +155,8 @@ class PlanResponse(BaseModel):
     plan_template: Optional[str] = None
     preauth_penalty_pct: float = 50.0
     non_network_reimbursement: str = "reference_based"
+    eligibility_threshold: float = 0
+    hour_bank_max: float = 0
 
 
 class MemberCreate(BaseModel):

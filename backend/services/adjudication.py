@@ -89,6 +89,23 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
             "adjudication_notes": ["DENIED: Service date after coverage termination"]
         }
 
+    # Hour bank deficit check
+    if member.get("status") == "termed_insufficient_hours":
+        return {
+            "status": ClaimStatus.DENIED.value,
+            "total_allowed": 0, "total_paid": 0,
+            "member_responsibility": claim["total_billed"],
+            "adjudication_notes": ["DENIED: Coverage suspended due to hour bank deficit."],
+            "service_lines": [{
+                **line,
+                "allowed": 0,
+                "paid": 0,
+                "member_resp": line.get("billed_amount", 0),
+                "denial_reason": "Coverage suspended due to hour bank deficit.",
+                "eob_message": "Coverage suspended due to hour bank deficit.",
+            } for line in claim.get("service_lines", [])],
+        }
+
     plan_type = plan.get("plan_type", "medical")
     if plan_type != claim_type:
         adjudication_notes.append(f"WARNING: Claim type '{claim_type}' does not match plan type '{plan_type}'.")

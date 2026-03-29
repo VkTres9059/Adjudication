@@ -105,6 +105,7 @@ export const dashboardAPI = {
 
 export const reportsAPI = {
   fixedCostVsClaims: () => api.get('/reports/fixed-cost-vs-claims'),
+  hourBankDeficiency: () => api.get('/reports/hour-bank-deficiency'),
 };
 
 export const ediAPI = {
@@ -173,4 +174,16 @@ export const examinerAPI = {
   reassign: (claimId, examinerId) => api.post(`/claims/${claimId}/reassign`, null, { params: { examiner_id: examinerId } }),
   performance: () => api.get('/examiner/performance'),
   listExaminers: () => api.get('/examiner/list'),
+};
+
+export const hourBankAPI = {
+  getLedger: (memberId) => api.get(`/hour-bank/${memberId}`),
+  uploadWorkReport: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/hour-bank/upload-work-report', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  runMonthly: (period) => api.post('/hour-bank/run-monthly', null, { params: period ? { period } : {} }),
 };

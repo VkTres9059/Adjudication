@@ -7,6 +7,7 @@ from routers import (
     auth, plans, members, groups, claims, examiner,
     duplicates, dashboard, reports, edi, codes,
     network, prior_auth, preventive, settings, audit,
+    hour_bank,
 )
 
 app = FastAPI(title="FletchFlow Claims Adjudication System", version="2.0.0")
@@ -38,6 +39,7 @@ api_router.include_router(prior_auth.router)
 api_router.include_router(preventive.router)
 api_router.include_router(settings.router)
 api_router.include_router(audit.router)
+api_router.include_router(hour_bank.router)
 
 app.include_router(api_router)
 

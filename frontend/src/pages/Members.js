@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { membersAPI, plansAPI } from '../lib/api';
+import { membersAPI, plansAPI, hourBankAPI } from '../lib/api';
 import api from '../lib/api';
 import { toast } from 'sonner';
 import {
@@ -20,6 +20,10 @@ import {
   ScrollText,
   ArrowRight,
   X,
+  Timer,
+  TrendingDown,
+  TrendingUp,
+  Minus,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -55,6 +59,10 @@ export default function Members() {
   const [auditTrail, setAuditTrail] = useState([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
+
+  // Hour bank state
+  const [hourBankData, setHourBankData] = useState(null);
+  const [hourBankLoading, setHourBankLoading] = useState(false);
 
   // Reconciliation state
   const [reconData, setReconData] = useState(null);
@@ -106,10 +114,20 @@ export default function Members() {
   const openDetail = async (member) => {
     setSelectedMember(member);
     setShowDetail(true);
+    setHourBankData(null);
     try {
       const res = await membersAPI.auditTrail(member.member_id);
       setAuditTrail(res.data);
     } catch { setAuditTrail([]); }
+  };
+
+  const fetchHourBank = async (memberId) => {
+    setHourBankLoading(true);
+    try {
+      const res = await hourBankAPI.getLedger(memberId);
+      setHourBankData(res.data);
+    } catch { setHourBankData(null); }
+    finally { setHourBankLoading(false); }
   };
 
   const fetchReconciliation = async () => {
@@ -512,50 +530,135 @@ export default function Members() {
                 <div className="bg-[#F7F7F4] rounded-lg p-3"><p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Termination</p><p className="text-sm font-medium">{selectedMember.termination_date || '—'}</p></div>
               </div>
 
-              {/* Member Audit Trail */}
-              <div className="mt-6" data-testid="member-audit-trail">
-                <div className="flex items-center gap-2 mb-3">
-                  <ScrollText className="h-4 w-4 text-[#64645F]" />
-                  <h3 className="text-sm font-medium text-[#1C1C1A]">Eligibility Audit Trail</h3>
-                </div>
-                {auditTrail.length === 0 ? (
-                  <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">No audit trail entries</p></div>
-                ) : (
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {auditTrail.map((entry) => {
-                      const Icon = AUDIT_ICONS[entry.action] || FileText;
-                      return (
-                        <div key={entry.id} className="flex items-start gap-3 bg-[#F7F7F4] rounded-lg p-3" data-testid={`audit-entry-${entry.id}`}>
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-                            entry.action === 'member_retro_terminated' ? 'bg-[#C24A3B]' :
-                            entry.action === 'member_terminated' ? 'bg-[#C9862B]' :
-                            entry.action === 'refund_requested' ? 'bg-[#5C2D91]' :
-                            'bg-[#1A3636]'
-                          }`}>
-                            <Icon className="h-3.5 w-3.5 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs font-medium text-[#1C1C1A] capitalize">{entry.action.replace(/_/g, ' ')}</p>
-                              <span className="text-[10px] text-[#8A8A85]">{new Date(entry.timestamp).toLocaleString()}</span>
+              {/* Member Detail Tabs: Audit Trail + Hour Bank */}
+              <Tabs defaultValue="audit" className="mt-6" onValueChange={(v) => { if (v === 'hour-bank' && !hourBankData) fetchHourBank(selectedMember.member_id); }}>
+                <TabsList className="bg-[#F0F0EA] h-9">
+                  <TabsTrigger value="audit" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-audit">
+                    <ScrollText className="h-3.5 w-3.5 mr-1" />Audit Trail
+                  </TabsTrigger>
+                  <TabsTrigger value="hour-bank" className="data-[state=active]:bg-white text-xs" data-testid="detail-tab-hour-bank">
+                    <Timer className="h-3.5 w-3.5 mr-1" />Hour Bank
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="audit" className="mt-3" data-testid="member-audit-trail">
+                  {auditTrail.length === 0 ? (
+                    <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">No audit trail entries</p></div>
+                  ) : (
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {auditTrail.map((entry) => {
+                        const Icon = AUDIT_ICONS[entry.action] || FileText;
+                        return (
+                          <div key={entry.id} className="flex items-start gap-3 bg-[#F7F7F4] rounded-lg p-3" data-testid={`audit-entry-${entry.id}`}>
+                            <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                              entry.action === 'member_retro_terminated' ? 'bg-[#C24A3B]' :
+                              entry.action === 'member_terminated' ? 'bg-[#C9862B]' :
+                              entry.action === 'refund_requested' ? 'bg-[#5C2D91]' :
+                              'bg-[#1A3636]'
+                            }`}>
+                              <Icon className="h-3.5 w-3.5 text-white" />
                             </div>
-                            {entry.details && (
-                              <p className="text-[10px] text-[#64645F] mt-0.5">
-                                {entry.details.source && `Source: ${entry.details.source}`}
-                                {entry.details.effective_date && ` | Effective: ${entry.details.effective_date}`}
-                                {entry.details.termination_date && ` | Term: ${entry.details.termination_date}`}
-                                {entry.details.total_recovery && ` | Recovery: ${fmt(entry.details.total_recovery)}`}
-                                {entry.details.claim_count && ` | Claims: ${entry.details.claim_count}`}
-                              </p>
-                            )}
-                            <p className="text-[10px] text-[#8A8A85]">By: {entry.user_id}</p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-medium text-[#1C1C1A] capitalize">{entry.action.replace(/_/g, ' ')}</p>
+                                <span className="text-[10px] text-[#8A8A85]">{new Date(entry.timestamp).toLocaleString()}</span>
+                              </div>
+                              {entry.details && (
+                                <p className="text-[10px] text-[#64645F] mt-0.5">
+                                  {entry.details.source && `Source: ${entry.details.source}`}
+                                  {entry.details.effective_date && ` | Effective: ${entry.details.effective_date}`}
+                                  {entry.details.termination_date && ` | Term: ${entry.details.termination_date}`}
+                                  {entry.details.total_recovery && ` | Recovery: ${fmt(entry.details.total_recovery)}`}
+                                  {entry.details.claim_count && ` | Claims: ${entry.details.claim_count}`}
+                                </p>
+                              )}
+                              <p className="text-[10px] text-[#8A8A85]">By: {entry.user_id}</p>
+                            </div>
                           </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="hour-bank" className="mt-3" data-testid="member-hour-bank">
+                  {hourBankLoading ? (
+                    <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">Loading hour bank...</p></div>
+                  ) : hourBankData ? (
+                    <div className="space-y-4">
+                      {/* Balance Summary - fixed height to prevent jitter */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="hour-bank-summary">
+                        <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Remaining Balance</p>
+                          <p className={`text-lg font-bold tabular-nums ${hourBankData.current_balance < 0 ? 'text-[#C24A3B]' : 'text-[#1A3636]'}`} data-testid="hour-bank-balance">
+                            {hourBankData.current_balance.toFixed(1)} hrs
+                          </p>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                        <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Monthly Threshold</p>
+                          <p className="text-lg font-bold tabular-nums text-[#1C1C1A]" data-testid="hour-bank-threshold">
+                            {hourBankData.threshold > 0 ? `${hourBankData.threshold} hrs` : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Max Bank</p>
+                          <p className="text-lg font-bold tabular-nums text-[#1C1C1A]" data-testid="hour-bank-max">
+                            {hourBankData.max_bank > 0 ? `${hourBankData.max_bank} hrs` : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-[#F7F7F4] rounded-lg p-3 h-[72px]">
+                          <p className="text-[10px] uppercase tracking-wider text-[#8A8A85]">Cushion</p>
+                          <p className={`text-lg font-bold tabular-nums ${hourBankData.hours_until_deficit < 20 ? 'text-[#C24A3B]' : hourBankData.hours_until_deficit < 50 ? 'text-[#C9862B]' : 'text-[#1A3636]'}`} data-testid="hour-bank-cushion">
+                            {hourBankData.threshold > 0 ? `${hourBankData.hours_until_deficit.toFixed(1)} hrs` : '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Ledger entries */}
+                      <div>
+                        <h4 className="text-xs font-medium text-[#64645F] mb-2">Ledger</h4>
+                        {hourBankData.entries.length === 0 ? (
+                          <div className="bg-[#F7F7F4] rounded-lg p-6 text-center">
+                            <p className="text-sm text-[#8A8A85]">No hour bank entries yet</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5 max-h-[220px] overflow-y-auto" data-testid="hour-bank-ledger">
+                            {hourBankData.entries.map((entry) => (
+                              <div key={entry.id} className="flex items-center gap-3 bg-[#F7F7F4] rounded-lg px-3 py-2 h-[44px]" data-testid={`hb-entry-${entry.id}`}>
+                                <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
+                                  entry.entry_type === 'work_hours' ? 'bg-[#2D6A4F]' :
+                                  entry.entry_type === 'monthly_deduction' ? 'bg-[#C24A3B]' :
+                                  'bg-[#4A6FA5]'
+                                }`}>
+                                  {entry.entry_type === 'work_hours' ? <TrendingUp className="h-3 w-3 text-white" /> :
+                                   entry.entry_type === 'monthly_deduction' ? <TrendingDown className="h-3 w-3 text-white" /> :
+                                   <Minus className="h-3 w-3 text-white" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-[#1C1C1A] truncate">{entry.description}</p>
+                                </div>
+                                <div className="text-right flex-shrink-0 w-20">
+                                  <p className={`text-xs font-bold tabular-nums ${entry.hours >= 0 ? 'text-[#2D6A4F]' : 'text-[#C24A3B]'}`}>
+                                    {entry.hours >= 0 ? '+' : ''}{entry.hours.toFixed(1)}
+                                  </p>
+                                </div>
+                                <div className="text-right flex-shrink-0 w-20">
+                                  <p className="text-xs tabular-nums text-[#64645F]">Bal: {entry.running_balance.toFixed(1)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#F7F7F4] rounded-lg p-6 text-center">
+                      <Timer className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+                      <p className="text-sm text-[#8A8A85]">Click to load hour bank data</p>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </DialogContent>

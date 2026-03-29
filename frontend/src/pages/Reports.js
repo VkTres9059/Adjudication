@@ -9,6 +9,8 @@ import {
   Calendar,
   TrendingUp,
   DollarSign,
+  Timer,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -48,6 +50,7 @@ export default function Reports() {
   const [claimsByType, setClaimsByType] = useState([]);
   const [claims, setClaims] = useState([]);
   const [fixedCostData, setFixedCostData] = useState([]);
+  const [hourBankDeficiency, setHourBankDeficiency] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -58,12 +61,13 @@ export default function Reports() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [metricsRes, statusRes, typeRes, claimsRes, fixedCostRes] = await Promise.all([
+      const [metricsRes, statusRes, typeRes, claimsRes, fixedCostRes, hbDefRes] = await Promise.all([
         dashboardAPI.metrics(),
         dashboardAPI.claimsByStatus(),
         dashboardAPI.claimsByType(),
         claimsAPI.list({ limit: 100 }),
         reportsAPI.fixedCostVsClaims(),
+        reportsAPI.hourBankDeficiency(),
       ]);
       
       setMetrics(metricsRes.data);
@@ -71,6 +75,7 @@ export default function Reports() {
       setClaimsByType(typeRes.data);
       setClaims(claimsRes.data);
       setFixedCostData(fixedCostRes.data || []);
+      setHourBankDeficiency(hbDefRes.data || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load reports');
@@ -481,6 +486,71 @@ export default function Reports() {
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      {/* Hour Bank Deficiency Report */}
+      <div className="bg-white rounded-xl border border-[#E2E2DF] p-6" data-testid="hour-bank-deficiency-report">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-[#C9862B]/10 rounded-lg flex items-center justify-center">
+            <Timer className="h-5 w-5 text-[#C9862B]" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-[#1C1C1A] font-['Outfit']">Hour Bank Deficiency</h2>
+            <p className="text-xs text-[#8A8A85]">Members within 20 hours of losing coverage</p>
+          </div>
+          {hourBankDeficiency.length > 0 && (
+            <Badge variant="destructive" className="ml-auto" data-testid="deficiency-count">{hourBankDeficiency.length} at risk</Badge>
+          )}
+        </div>
+
+        {hourBankDeficiency.length === 0 ? (
+          <div className="bg-[#F7F7F4] rounded-lg p-8 text-center">
+            <Timer className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" />
+            <p className="text-sm text-[#8A8A85]">No members currently at risk of hour bank deficit</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-[#E2E2DF]">
+                <TableHead>Member</TableHead>
+                <TableHead>Group</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="text-right">Threshold</TableHead>
+                <TableHead className="text-right">Cushion</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {hourBankDeficiency.map((m) => (
+                <TableRow key={m.member_id} className="table-row" data-testid={`deficiency-row-${m.member_id}`}>
+                  <TableCell>
+                    <p className="text-sm font-medium">{m.first_name} {m.last_name}</p>
+                    <p className="text-[10px] text-[#8A8A85] font-['JetBrains_Mono']">{m.member_id}</p>
+                  </TableCell>
+                  <TableCell className="text-xs">{m.group_name || m.group_id}</TableCell>
+                  <TableCell className="text-xs">{m.plan_name}</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">
+                    <span className={m.current_balance < 0 ? 'text-[#C24A3B] font-bold' : ''}>{m.current_balance.toFixed(1)} hrs</span>
+                  </TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{m.threshold} hrs</TableCell>
+                  <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">
+                    <span className={`font-bold ${m.cushion < 0 ? 'text-[#C24A3B]' : m.cushion < 10 ? 'text-[#C9862B]' : 'text-[#64645F]'}`}>
+                      {m.cushion.toFixed(1)} hrs
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={m.status === 'termed_insufficient_hours' ? 'destructive' : 'outline'} className="text-[10px]" data-testid={`deficiency-status-${m.member_id}`}>
+                      {m.status === 'termed_insufficient_hours' ? (
+                        <><AlertTriangle className="h-3 w-3 mr-1" />Termed</>
+                      ) : 'Active'}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </div>
     </div>
   );

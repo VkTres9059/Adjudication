@@ -49,3 +49,49 @@ async def fixed_cost_vs_claims(user: dict = Depends(get_current_user)):
         })
 
     return report_data
+
+
+@router.get("/hour-bank-deficiency")
+async def hour_bank_deficiency_report(user: dict = Depends(get_current_user)):
+    """List all members within 20 hours of losing coverage due to hour bank deficit."""
+    plans = await db.plans.find(
+        {"eligibility_threshold": {"$gt": 0}}, {"_id": 0}
+    ).to_list(1000)
+    plan_map = {p["id"]: p for p in plans}
+
+    if not plan_map:
+        return []
+
+    plan_ids = list(plan_map.keys())
+    members = await db.members.find(
+        {"plan_id": {"$in": plan_ids}}, {"_id": 0}
+    ).to_list(100000)
+
+    at_risk = []
+    for m in members:
+        plan = plan_map.get(m.get("plan_id"))
+        if not plan:
+            continue
+
+        threshold = plan.get("eligibility_threshold", 0)
+        bank = await db.hour_bank.find_one({"member_id": m["member_id"]}, {"_id": 0})
+        balance = bank["current_balance"] if bank else 0.0
+        cushion = balance - threshold
+
+        if cushion < 20:
+            group = await db.groups.find_one({"id": m.get("group_id")}, {"_id": 0, "name": 1})
+            at_risk.append({
+                "member_id": m["member_id"],
+                "first_name": m.get("first_name", ""),
+                "last_name": m.get("last_name", ""),
+                "group_id": m.get("group_id", ""),
+                "group_name": group.get("name", "") if group else "",
+                "plan_name": plan.get("name", ""),
+                "current_balance": round(balance, 2),
+                "threshold": threshold,
+                "cushion": round(cushion, 2),
+                "status": m.get("status", "active"),
+            })
+
+    at_risk.sort(key=lambda x: x["cushion"])
+    return at_risk
