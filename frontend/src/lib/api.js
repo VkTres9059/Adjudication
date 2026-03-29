@@ -90,6 +90,10 @@ export const dashboardAPI = {
   recentActivity: (limit = 10) => api.get('/dashboard/recent-activity', { params: { limit } }),
 };
 
+export const reportsAPI = {
+  fixedCostVsClaims: () => api.get('/reports/fixed-cost-vs-claims'),
+};
+
 export const ediAPI = {
   upload834: (file) => {
     const formData = new FormData();

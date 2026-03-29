@@ -17,6 +17,8 @@ import {
   X,
   Activity,
   TrendingDown,
+  ShieldOff,
+  Banknote,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -57,6 +59,7 @@ const INITIAL_FORM = {
   name: '', tax_id: '', effective_date: new Date().toISOString().split('T')[0],
   termination_date: '', contact_name: '', contact_email: '', contact_phone: '',
   address: '', city: '', state: '', zip_code: '', sic_code: '', employee_count: 0,
+  total_premium: 0, mgu_fees: 0,
   stop_loss: { specific_deductible: 0, aggregate_attachment_point: 0, aggregate_factor: 125, contract_period: '12_month', laser_deductibles: [] },
   sftp_config: { host: '', port: 22, username: '', directory: '/', schedule: 'daily', file_types: ['834', '835'], enabled: false },
   plan_ids: [],
@@ -146,6 +149,8 @@ export default function Groups() {
 
   const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v || 0);
 
+  const isMecGroup = pulse?.is_mec === true;
+
   return (
     <div className="space-y-6" data-testid="groups-page">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -227,6 +232,7 @@ export default function Groups() {
             <Tabs defaultValue="info" className="mt-2">
               <TabsList className="bg-[#F0F0EA] border border-[#E2E2DF] mb-4">
                 <TabsTrigger value="info" className="data-[state=active]:bg-white text-xs">Group Info</TabsTrigger>
+                <TabsTrigger value="financials" className="data-[state=active]:bg-white text-xs">Financials</TabsTrigger>
                 <TabsTrigger value="stoploss" className="data-[state=active]:bg-white text-xs">Stop-Loss</TabsTrigger>
                 <TabsTrigger value="sftp" className="data-[state=active]:bg-white text-xs">SFTP</TabsTrigger>
               </TabsList>
@@ -243,6 +249,21 @@ export default function Groups() {
                   <div className="space-y-2"><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="input-field" /></div>
                   <div className="space-y-2"><Label>SIC Code</Label><Input value={form.sic_code} onChange={(e) => setForm({ ...form, sic_code: e.target.value })} className="input-field" placeholder="e.g., 3599" /></div>
                   <div className="space-y-2"><Label>Zip Code</Label><Input value={form.zip_code} onChange={(e) => setForm({ ...form, zip_code: e.target.value })} className="input-field" /></div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="financials">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Total Premium ($)</Label>
+                    <Input type="number" value={form.total_premium} onChange={(e) => setForm({ ...form, total_premium: parseFloat(e.target.value) || 0 })} className="input-field" data-testid="group-total-premium" />
+                    <p className="text-[10px] text-[#8A8A85]">Annual premium collected from employer</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>MGU Fees ($)</Label>
+                    <Input type="number" value={form.mgu_fees} onChange={(e) => setForm({ ...form, mgu_fees: parseFloat(e.target.value) || 0 })} className="input-field" data-testid="group-mgu-fees" />
+                    <p className="text-[10px] text-[#8A8A85]">MGU admin fees and carrier retention</p>
+                  </div>
                 </div>
               </TabsContent>
 
@@ -305,7 +326,14 @@ export default function Groups() {
           {selectedGroup && (
             <>
               <DialogHeader>
-                <DialogTitle className="font-['Outfit'] text-xl">{selectedGroup.name}</DialogTitle>
+                <div className="flex items-center gap-3">
+                  <DialogTitle className="font-['Outfit'] text-xl">{selectedGroup.name}</DialogTitle>
+                  {isMecGroup && (
+                    <Badge className="bg-[#1A3636] text-white text-[10px] border-0" data-testid="mec-badge">
+                      <Shield className="h-3 w-3 mr-1" />MEC 1
+                    </Badge>
+                  )}
+                </div>
                 <DialogDescription>Tax ID: {selectedGroup.tax_id} | {selectedGroup.city}{selectedGroup.state && `, ${selectedGroup.state}`}</DialogDescription>
               </DialogHeader>
 
@@ -330,9 +358,51 @@ export default function Groups() {
                 </div>
               )}
 
-              {/* Stop-Loss Section */}
-              {pulse?.stop_loss && pulse.stop_loss.aggregate_attachment_point > 0 && (
-                <div className="bg-[#F7F7F4] rounded-xl p-5 mt-4">
+              {/* MEC Financials Section (replaces Stop-Loss for MEC groups) */}
+              {isMecGroup && pulse && (
+                <div className="bg-[#F7F7F4] rounded-xl p-5 mt-4" data-testid="mec-financials-section">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Banknote className="h-4 w-4 text-[#4B6E4E]" />
+                      <h3 className="font-medium text-[#1C1C1A] font-['Outfit']">MEC Financials</h3>
+                    </div>
+                    <Badge className="bg-[#E8F0E9] text-[#4B6E4E] border-0 text-[10px]" data-testid="self-insured-badge">
+                      <ShieldOff className="h-3 w-3 mr-1" />Self-Insured &mdash; No Stop-Loss Required
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Total Premium</p>
+                      <p className="font-semibold font-['JetBrains_Mono']" data-testid="mec-total-premium">{fmt(pulse.stop_loss?.total_premium)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">MGU Fees</p>
+                      <p className="font-semibold font-['JetBrains_Mono']" data-testid="mec-mgu-fees">{fmt(pulse.stop_loss?.mgu_fees)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Surplus Bucket</p>
+                      <p className="font-semibold font-['JetBrains_Mono'] text-[#4B6E4E]" data-testid="mec-surplus">{fmt(pulse.stop_loss?.surplus_bucket)}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm mt-3 pt-3 border-t border-[#E2E2DF]">
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Claims Paid YTD</p>
+                      <p className="font-semibold font-['JetBrains_Mono']" data-testid="mec-claims-paid">{fmt(pulse.stop_loss?.total_paid_ytd)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">YTD Utilization</p>
+                      <p className="font-semibold font-['JetBrains_Mono'] text-[#8A8A85]" data-testid="mec-utilization">N/A</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[10px] text-[#8A8A85] bg-[#E8F0E9] rounded-md px-3 py-1.5">
+                    Surplus = Total Premium - (MGU Fees + Claims Paid)
+                  </div>
+                </div>
+              )}
+
+              {/* Standard Stop-Loss Section (hidden for MEC groups) */}
+              {!isMecGroup && pulse?.stop_loss && pulse.stop_loss.aggregate_attachment_point > 0 && (
+                <div className="bg-[#F7F7F4] rounded-xl p-5 mt-4" data-testid="stop-loss-section">
                   <div className="flex items-center gap-2 mb-3"><Shield className="h-4 w-4 text-[#C9862B]" /><h3 className="font-medium text-[#1C1C1A] font-['Outfit']">Stop-Loss Status</h3></div>
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div>
@@ -393,11 +463,16 @@ export default function Groups() {
                 ) : (
                   <div className="space-y-2">
                     {selectedGroup.attached_plans?.map((plan) => (
-                      <div key={plan.id} className="bg-[#F7F7F4] rounded-lg p-4 flex items-center justify-between">
+                      <div key={plan.id} className="bg-[#F7F7F4] rounded-lg p-4 flex items-center justify-between" data-testid={`plan-card-${plan.id}`}>
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-medium text-sm">{plan.name}</p>
                             {plan.plan_template === 'mec_1' && <Badge className="badge-approved text-[10px]">MEC 1</Badge>}
+                            {plan.plan_template === 'mec_1' && (
+                              <Badge className="bg-[#E8F0E9] text-[#4B6E4E] border-0 text-[10px]" data-testid="no-stop-loss-badge">
+                                <ShieldOff className="h-2.5 w-2.5 mr-0.5" />No Stop-Loss
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-[#8A8A85] mt-0.5">
                             {plan.plan_type} | {plan.network_type} | Preventive: {plan.preventive_design === 'aca_strict' ? 'ACA Strict' : 'Enhanced'}
@@ -459,6 +534,12 @@ export default function Groups() {
             <div className="flex justify-between"><span className="text-[#64645F]">Exclusions</span><span>30 service categories</span></div>
             <div className="flex justify-between"><span className="text-[#64645F]">Pre-auth Penalty</span><span>50%</span></div>
             <div className="flex justify-between"><span className="text-[#64645F]">Non-network</span><span>Reference-based pricing</span></div>
+            <div className="flex justify-between border-t border-[#E2E2DF] pt-2 mt-2">
+              <span className="text-[#64645F]">Stop-Loss</span>
+              <Badge className="bg-[#E8F0E9] text-[#4B6E4E] border-0 text-[10px]">
+                <ShieldOff className="h-2.5 w-2.5 mr-0.5" />Not Required (Self-Insured)
+              </Badge>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowMEC(false)} className="btn-secondary">Cancel</Button>

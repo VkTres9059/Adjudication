@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { dashboardAPI, claimsAPI, ediAPI } from '../lib/api';
+import { dashboardAPI, claimsAPI, ediAPI, reportsAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -8,6 +8,7 @@ import {
   FileText,
   Calendar,
   TrendingUp,
+  DollarSign,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -27,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import { Badge } from '../components/ui/badge';
 import {
   BarChart,
   Bar,
@@ -36,6 +38,8 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  Legend,
+  CartesianGrid,
 } from 'recharts';
 
 export default function Reports() {
@@ -43,8 +47,8 @@ export default function Reports() {
   const [claimsByStatus, setClaimsByStatus] = useState([]);
   const [claimsByType, setClaimsByType] = useState([]);
   const [claims, setClaims] = useState([]);
+  const [fixedCostData, setFixedCostData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [reportType, setReportType] = useState('claims');
   const [dateRange, setDateRange] = useState({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     to: new Date().toISOString().split('T')[0],
@@ -54,17 +58,19 @@ export default function Reports() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [metricsRes, statusRes, typeRes, claimsRes] = await Promise.all([
+      const [metricsRes, statusRes, typeRes, claimsRes, fixedCostRes] = await Promise.all([
         dashboardAPI.metrics(),
         dashboardAPI.claimsByStatus(),
         dashboardAPI.claimsByType(),
         claimsAPI.list({ limit: 100 }),
+        reportsAPI.fixedCostVsClaims(),
       ]);
       
       setMetrics(metricsRes.data);
       setClaimsByStatus(statusRes.data);
       setClaimsByType(typeRes.data);
       setClaims(claimsRes.data);
+      setFixedCostData(fixedCostRes.data || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load reports');
@@ -82,7 +88,6 @@ export default function Reports() {
     try {
       const response = await ediAPI.generate835(dateRange.from, dateRange.to);
       
-      // Create downloadable file
       const blob = new Blob([response.data.content], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -134,6 +139,22 @@ export default function Reports() {
       currency: 'USD',
       minimumFractionDigits: 0,
     }).format(value || 0);
+  };
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-white border border-[#E2E2DF] rounded-lg p-3 shadow-md text-xs">
+        <p className="font-medium text-[#1C1C1A] mb-1">{label}</p>
+        {payload.map((p, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+            <span className="text-[#64645F]">{p.name}:</span>
+            <span className="font-['JetBrains_Mono'] font-medium">{formatCurrency(p.value)}</span>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   if (loading) {
@@ -274,6 +295,102 @@ export default function Reports() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Fixed Cost vs. Claims Spend Chart */}
+      <div className="container-card" data-testid="fixed-cost-vs-claims-chart">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
+              Fixed Cost vs. Claims Spend
+            </h3>
+            <p className="text-xs text-[#8A8A85] mt-1">
+              Per-group breakdown of MGU fees, claims paid, and surplus margin
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-[10px]">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#C9862B]" />
+              <span className="text-[#64645F]">MGU Fees</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#C24A3B]" />
+              <span className="text-[#64645F]">Claims Paid</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#4B6E4E]" />
+              <span className="text-[#64645F]">Surplus</span>
+            </div>
+          </div>
+        </div>
+        {fixedCostData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 text-center">
+            <DollarSign className="h-8 w-8 text-[#E2E2DF] mb-2" />
+            <p className="text-sm text-[#8A8A85]">No group financial data available</p>
+            <p className="text-xs text-[#8A8A85]">Create groups with premium & MGU fee data to see this report</p>
+          </div>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={fixedCostData} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E2DF" vertical={false} />
+                <XAxis
+                  dataKey="group_name"
+                  tick={{ fontSize: 11, fill: '#64645F' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#64645F' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="mgu_fees" name="MGU Fees" fill="#C9862B" stackId="costs" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="claims_paid" name="Claims Paid" fill="#C24A3B" stackId="costs" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="surplus" name="Surplus" fill="#4B6E4E" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            {/* Summary Table */}
+            <div className="mt-4 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="table-header">
+                    <TableHead>Group</TableHead>
+                    <TableHead className="text-right">Premium</TableHead>
+                    <TableHead className="text-right">MGU Fees</TableHead>
+                    <TableHead className="text-right">Claims Paid</TableHead>
+                    <TableHead className="text-right">Surplus</TableHead>
+                    <TableHead className="text-right">Margin</TableHead>
+                    <TableHead>Type</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {fixedCostData.map((row) => (
+                    <TableRow key={row.group_id} className="table-row" data-testid={`fcvc-row-${row.group_id}`}>
+                      <TableCell className="font-medium text-sm">{row.group_name}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{formatCurrency(row.total_premium)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C9862B]">{formatCurrency(row.mgu_fees)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C24A3B]">{formatCurrency(row.claims_paid)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#4B6E4E] font-semibold">{formatCurrency(row.surplus)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs font-semibold">
+                        <span className={row.margin_pct > 0 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}>{row.margin_pct}%</span>
+                      </TableCell>
+                      <TableCell>
+                        {row.is_mec ? (
+                          <Badge className="bg-[#1A3636] text-white text-[10px] border-0">MEC 1</Badge>
+                        ) : (
+                          <Badge className="bg-[#F0F0EA] text-[#64645F] text-[10px] border-0">Standard</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* EDI 835 Generation */}

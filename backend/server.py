@@ -224,6 +224,8 @@ class GroupCreate(BaseModel):
     zip_code: str = ""
     sic_code: str = ""
     employee_count: int = 0
+    total_premium: float = 0.0
+    mgu_fees: float = 0.0
     stop_loss: Optional[StopLossConfig] = None
     sftp_config: Optional[SFTPConfig] = None
     plan_ids: List[str] = []
@@ -588,6 +590,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
     total_paid = 0
     member_responsibility = 0
     claim_type = claim.get("claim_type", "medical")
+    is_mec_plan = plan.get("plan_template") == "mec_1"
     
     # Check member eligibility
     claim_date = datetime.fromisoformat(claim["service_date_from"])
@@ -732,6 +735,27 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
                 "Normal plan benefits apply."
             )
             # Fall through to normal adjudication
+        
+        # ===== MEC 1: AUTO-DENY NON-PREVENTIVE SERVICES =====
+        if is_mec_plan:
+            adjudication_notes.append(
+                f"Line {line['line_number']}: {proc_code} - DENIED: Not a Covered Benefit (MEC 1 Plan - Preventive Only)"
+            )
+            processed_lines.append({
+                **line,
+                "allowed": 0,
+                "paid": 0,
+                "member_resp": billed,
+                "deductible_applied": 0,
+                "medicare_rate": None,
+                "cpt_description": f"{proc_code} - Not Covered (MEC 1)",
+                "coverage_type": claim_type,
+                "is_preventive": False,
+                "denial_reason": "Not a Covered Benefit - MEC 1 Plan (Preventive Services Only)",
+                "eob_message": "Service denied - Not a covered benefit under MEC 1. Only ACA-compliant preventive services are covered.",
+            })
+            member_responsibility += billed
+            continue
         
         # ===== NORMAL (NON-PREVENTIVE) ADJUDICATION =====
         code_data = lookup_code_for_claim_type(proc_code, claim_type)
@@ -1314,16 +1338,60 @@ async def group_pulse_analytics(group_id: str, user: dict = Depends(get_current_
     ]
     by_type = await db.claims.aggregate(pipeline_types).to_list(10)
     
-    # Stop-loss surplus calculation
-    stop_loss = group.get("stop_loss") or {}
-    specific_ded = stop_loss.get("specific_deductible", 0)
-    aggregate_att = stop_loss.get("aggregate_attachment_point", 0)
+    # Determine if group has a MEC 1 plan attached
+    is_mec_group = False
+    for pid in group.get("plan_ids", []):
+        p = await db.plans.find_one({"id": pid, "plan_template": "mec_1"}, {"_id": 0})
+        if p:
+            is_mec_group = True
+            break
+    
     total_paid_val = financials.get("total_paid", 0)
-    surplus = max(0, aggregate_att - total_paid_val) if aggregate_att > 0 else 0
+    
+    # Surplus calculation differs by group type
+    if is_mec_group:
+        # MEC: Surplus = Total Premium - (MGU Fees + Claims Paid)
+        total_premium = group.get("total_premium", 0)
+        mgu_fees = group.get("mgu_fees", 0)
+        surplus = max(0, total_premium - (mgu_fees + total_paid_val))
+    else:
+        # Standard stop-loss based surplus
+        stop_loss = group.get("stop_loss") or {}
+        specific_ded = stop_loss.get("specific_deductible", 0)
+        aggregate_att = stop_loss.get("aggregate_attachment_point", 0)
+        surplus = max(0, aggregate_att - total_paid_val) if aggregate_att > 0 else 0
+        total_premium = group.get("total_premium", 0)
+        mgu_fees = group.get("mgu_fees", 0)
+        fixed_costs = 0
+        expected_claims = 0
+    
+    stop_loss_data = {}
+    if is_mec_group:
+        stop_loss_data = {
+            "specific_deductible": 0,
+            "aggregate_attachment_point": 0,
+            "total_paid_ytd": round(total_paid_val, 2),
+            "surplus_bucket": round(surplus, 2),
+            "utilization_pct": 0,
+            "total_premium": round(total_premium, 2),
+            "mgu_fees": round(mgu_fees, 2),
+        }
+    else:
+        stop_loss = group.get("stop_loss") or {}
+        specific_ded = stop_loss.get("specific_deductible", 0)
+        aggregate_att = stop_loss.get("aggregate_attachment_point", 0)
+        stop_loss_data = {
+            "specific_deductible": specific_ded,
+            "aggregate_attachment_point": aggregate_att,
+            "total_paid_ytd": round(total_paid_val, 2),
+            "surplus_bucket": round(surplus, 2),
+            "utilization_pct": round(total_paid_val / aggregate_att * 100, 1) if aggregate_att > 0 else 0,
+        }
     
     return {
         "group_id": group_id,
         "group_name": group.get("name", ""),
+        "is_mec": is_mec_group,
         "member_count": member_count,
         "total_claims": total_claims,
         "approved_claims": approved_claims,
@@ -1331,13 +1399,7 @@ async def group_pulse_analytics(group_id: str, user: dict = Depends(get_current_
         "total_paid": round(financials.get("total_paid", 0), 2),
         "total_savings": round(financials.get("total_billed", 0) - financials.get("total_paid", 0), 2),
         "claims_by_type": [{"type": c["_id"], "count": c["count"], "paid": round(c["total_paid"], 2)} for c in by_type],
-        "stop_loss": {
-            "specific_deductible": specific_ded,
-            "aggregate_attachment_point": aggregate_att,
-            "total_paid_ytd": round(total_paid_val, 2),
-            "surplus_bucket": round(surplus, 2),
-            "utilization_pct": round(total_paid_val / aggregate_att * 100, 1) if aggregate_att > 0 else 0,
-        },
+        "stop_loss": stop_loss_data,
         "pmpm": round(total_paid_val / max(member_count, 1), 2),
     }
 
@@ -1746,6 +1808,54 @@ async def get_claims_by_type(user: dict = Depends(get_current_user)):
 async def get_recent_activity(limit: int = 10, user: dict = Depends(get_current_user)):
     logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
     return logs
+
+# ==================== REPORTS ENDPOINTS ====================
+
+@api_router.get("/reports/fixed-cost-vs-claims")
+async def fixed_cost_vs_claims(user: dict = Depends(get_current_user)):
+    """Fixed Cost vs. Claims Spend report for all groups. Shows MGU margin per group."""
+    groups = await db.groups.find({"status": "active"}, {"_id": 0}).to_list(1000)
+    report_data = []
+    
+    for group in groups:
+        member_ids_cursor = await db.members.find({"group_id": group["id"]}, {"member_id": 1, "_id": 0}).to_list(100000)
+        member_ids = [m["member_id"] for m in member_ids_cursor]
+        
+        pipeline = [
+            {"$match": {"member_id": {"$in": member_ids}}},
+            {"$group": {"_id": None, "total_paid": {"$sum": "$total_paid"}, "total_billed": {"$sum": "$total_billed"}, "claim_count": {"$sum": 1}}}
+        ]
+        fin = await db.claims.aggregate(pipeline).to_list(1)
+        claims_paid = fin[0]["total_paid"] if fin else 0
+        claim_count = fin[0]["claim_count"] if fin else 0
+        
+        total_premium = group.get("total_premium", 0)
+        mgu_fees = group.get("mgu_fees", 0)
+        fixed_costs = mgu_fees
+        surplus = max(0, total_premium - (mgu_fees + claims_paid))
+        
+        # Determine if MEC group
+        is_mec = False
+        for pid in group.get("plan_ids", []):
+            p = await db.plans.find_one({"id": pid, "plan_template": "mec_1"}, {"_id": 0, "id": 1})
+            if p:
+                is_mec = True
+                break
+        
+        report_data.append({
+            "group_id": group["id"],
+            "group_name": group.get("name", ""),
+            "is_mec": is_mec,
+            "employee_count": group.get("employee_count", 0),
+            "total_premium": round(total_premium, 2),
+            "mgu_fees": round(fixed_costs, 2),
+            "claims_paid": round(claims_paid, 2),
+            "surplus": round(surplus, 2),
+            "claim_count": claim_count,
+            "margin_pct": round((surplus / total_premium * 100), 1) if total_premium > 0 else 0,
+        })
+    
+    return report_data
 
 # ==================== EDI ENDPOINTS ====================
 
