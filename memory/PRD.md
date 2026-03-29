@@ -8,7 +8,7 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 - **Backend**: FastAPI (modular routers), MongoDB, JWT Auth (MSAL fallback)
 - **Structure**: `/app/backend/routers/`, `/app/backend/services/`, `/app/backend/models/`, `/app/backend/core/`
 
-## Completed Features (as of Mar 2026)
+## Completed Features
 
 ### Phase 1 — Core Claims Engine
 - Multi-line claims adjudication (Medical, Dental, Vision, Pharmacy)
@@ -25,50 +25,44 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 - Global Adjudication Gateway settings
 - Examiner Queue Dashboard with auto-assignment engine
 - Hard Hold / Soft Hold claim states
-- Prior Authorization tracking
-- COB (Coordination of Benefits) processing
+- Prior Authorization tracking, COB processing
 
 ### Phase 3 — Eligibility & Member Lifecycle
-- Reconciliation Dashboard
-- Retroactive Termination / Clawback
-- Pending Eligibility Queue
-- Age-Out Rules
+- Reconciliation Dashboard, Retroactive Termination / Clawback
+- Pending Eligibility Queue, Age-Out Rules
 
 ### Phase 4 — Backend Refactoring
-- Migrated ~3,850 line server.py monolith to modular router architecture
-- 16 routers: auth, plans, members, groups, claims, examiner, duplicates, dashboard, reports, edi, codes, network, prior_auth, preventive, settings, audit, hour_bank
+- Migrated ~3,850 line server.py monolith to modular router architecture (16 routers)
 
 ### Phase 5 — Navigation & UX
 - Collapsible categorized sidebar (Operations, Plan Management, Claims Center, Network & Groups)
 
-### Phase 6 — Variable Hour Bank Module (Base + Upgrade)
-- **Base**: SFTP work report ingestion, hour bank ledger, auto-status flip
-- **Upgrade (Mar 29 2026)**:
-  - Multi-Tier Banking: Current Month + Reserve Bank (capped at 500 hrs)
-  - Predictive Eligibility Alerts: Burn rate calc, months remaining, at-risk flags (<2x threshold)
-  - Automated Bridge Payment Logic: Cash-to-hours conversion, instant member activation
-  - Manual Hour Entry form (add/deduct hours with audit trail)
-  - Claims Integration Gatekeeper: Hour bank check before adjudication; short-hour members routed to Examiner Queue with "Eligibility Hold"
-  - Eligibility Source Tracking: Badges on claims (Standard Hours, Reserve Draw, Bridge Payment, Insufficient)
-  - Bridge Payment Settings: Toggle + rate-per-hour config in Settings
-  - Predictive Eligibility Dashboard: Summary cards + full member table in Reports
-  - Enhanced Hour Bank Deficiency Report: Multi-tier columns, burn rate, months remaining, at-risk flags
-  - All UI is 100% static with tabular-nums and fixed heights (zero layout jitter)
+### Phase 6 — Variable Hour Bank Module (Base + Upgrade) — Mar 29 2026
+- Multi-Tier Banking: Current Month + Reserve Bank (capped at 500 hrs)
+- Predictive Eligibility Alerts: Burn rate, months remaining, at-risk flags
+- Automated Bridge Payment Logic: Cash-to-hours, instant activation
+- Manual Hour Entry, Claims Integration Gatekeeper
+- Eligibility Source Tracking badges on claims
+- Bridge Payment Settings, Predictive Eligibility Dashboard
+- Enhanced Hour Bank Deficiency Report with multi-tier columns
 
-## Key Endpoints
-- `POST /api/hour-bank/upload-work-report` — CSV ingestion
-- `GET /api/hour-bank/{member_id}` — Multi-tier ledger
-- `POST /api/hour-bank/{member_id}/manual-entry` — Manual hours
-- `POST /api/hour-bank/{member_id}/bridge-payment` — Bridge payment
-- `POST /api/hour-bank/run-monthly` — Monthly deduction cycle
-- `GET /api/hour-bank/notifications/list` — Low-balance alerts
-- `GET /api/settings/bridge-payment` — Bridge config
-- `PUT /api/settings/bridge-payment` — Update bridge config
-- `GET /api/reports/predictive-eligibility` — Predictive dashboard
-- `GET /api/reports/hour-bank-deficiency` — Enhanced deficiency report
+### Phase 7 — Member 360 View — Mar 30 2026
+- **Financial Accumulator Dashboard**: Live progress bars for Individual Deductible, Family Deductible, OOP Max — update on paid claims
+- **Member Claims History**: Full claims table within member profile with one-click inline EOB
+- **Dependent & Household Management**: Subscriber hierarchy, dependents list, family deductible cross-accumulation
+- **Integrated Hour Bank Status**: Balance chip in member header showing hold status
+- **Static UI**: Header + accumulators remain stationary while tabs switch (zero layout jitter)
+- New endpoints: `/api/members/{id}/accumulators`, `/api/members/{id}/claims-history`, `/api/members/{id}/dependents`
+
+## Key API Endpoints
+- Members: CRUD + `/accumulators` + `/claims-history` + `/dependents` + `/audit-trail`
+- Hour Bank: `/upload-work-report` + `/{id}` + `/{id}/manual-entry` + `/{id}/bridge-payment` + `/run-monthly` + `/notifications/list`
+- Settings: `/adjudication-gateway` + `/bridge-payment`
+- Reports: `/fixed-cost-vs-claims` + `/hour-bank-deficiency` + `/predictive-eligibility`
+- Claims: CRUD + `/adjudicate` + `/batch` + `/cob` + `/hold` + `/release-hold`
 
 ## Upcoming Tasks (Prioritized Backlog)
-- **P1**: Carrier Bordereaux Reporting Module
+- **P1**: Carrier Bordereaux Reporting Module (link hour bank draws to premium push)
 - **P1**: Real X12 EDI parser (834/837/835)
 - **P1**: Azure AD MSAL real credentials
 - **P2**: Network repricing vs contracted rates
@@ -80,5 +74,6 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 - MSAL Azure AD (JWT fallback)
 
 ## Test Reports
-- Iterations 1-12: Core features, refactoring, sidebar, base hour bank (all passing)
-- Iteration 13: Hour Bank Module Upgrade — 100% pass (11/11 backend, all frontend)
+- Iterations 1-12: Core features, refactoring, sidebar, base hour bank
+- Iteration 13: Hour Bank Module Upgrade — 100% pass
+- Iteration 14: Member 360 View — 100% pass (14/14 backend, all frontend)
