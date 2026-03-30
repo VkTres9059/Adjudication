@@ -1,76 +1,81 @@
 # FletchFlow — Claims Adjudication System PRD
 
 ## Original Problem Statement
-Build a scalable, API-first claims adjudication system supporting multiple lines of coverage. Start with Medical coverage, use Microsoft MFA for authentication, accept EDI 834/837 input with 835 output. Provide reporting for claims/eligibility. Implement strict duplicate claim prevention, built-in Medicare fee schedules, multi-line coverage, a comprehensive Preventive Coverage module, and Group Management.
+Build a scalable, API-first claims adjudication system supporting multiple lines of coverage. Start with Medical, use Microsoft MFA for authentication, accept EDI 834/837 input with 835 output. Reporting for claims/eligibility. Strict duplicate claim prevention, built-in Medicare fee schedules, multi-line coverage, Preventive Coverage module, and Group Management.
 
 ## Architecture
-- **Frontend**: React + Tailwind CSS + Shadcn UI, collapsible categorized sidebar
-- **Backend**: FastAPI (20 routers), MongoDB, JWT Auth (MSAL fallback), APScheduler
-- **Structure**: `/app/backend/routers/`, `/app/backend/services/`, `/app/backend/models/`, `/app/backend/core/`
+- **Frontend**: React 18, Tailwind CSS, Shadcn UI
+- **Backend**: FastAPI, MongoDB, APScheduler, ReportLab
+- **AI**: OpenAI GPT-5.2 via emergentintegrations (EMERGENT_LLM_KEY)
 
 ## Completed Features
 
-### Phase 1-3: Core Engine + Gateway + Lifecycle
-- Multi-line claims adjudication (Medical, Dental, Vision, Pharmacy)
-- Medicare fee schedule pricing (377+ CPT codes, 87 GPCI localities)
-- Real-time duplicate claim detection, JWT auth, Tiered Authorization Matrix
-- Group Management with stop-loss, Preventive Coverage module
-- Member lifecycle: reconciliation, retro-term/clawback, age-out rules
+### Core Engine (Phase 1)
+- Medical claims adjudication with Medicare fee schedule pricing
+- EDI 834/837 parser with 835 output generation
+- Duplicate claim detection with fuzzy matching
+- Member/Group/Plan CRUD with eligibility verification
+- Examiner Queue with auto-assignment engine
+- Prior Authorization workflows
+- Preventive Coverage module with 440+ procedure codes
+- Hour Bank system with reserve/bridge logic
 
-### Phase 4-5: Backend Refactoring + Navigation
-- Modular router architecture, Collapsible categorized sidebar
+### Financial & Disbursement (Phase 2)
+- ASO Check Run Manager with provider batching
+- Level Funded Claims Reserve Tracker
+- Vendor Payables ledger
+- Wells Fargo API integration (MOCKED) for funding pulls/disbursements
+- PDF generation (funding requests, SBC documents)
 
-### Phase 6: Variable Hour Bank Module — Mar 29 2026
-- Multi-Tier Banking, Predictive Eligibility, Bridge Payments
+### SFTP & EDI Automation (Phase 2)
+- SFTP Connection Manager with encrypted credentials
+- Automated intake scheduling (APScheduler)
+- External Data Export Engine
 
-### Phase 7: Member 360 View — Mar 30 2026
-- Financial Accumulators, Claims History, Dependent Management
+### Plan Configuration (Phase 3)
+- Multi-tier benefit design with modular benefit stacking
+- Network tiers with Reference Based Pricing (RBP)
+- Specific/Aggregate stop-loss tracking + auto-flag in adjudication
+- SBC PDF generation endpoint
+- 6-tab Plan Builder UI (General, Cost Sharing, Benefits, Network, Risk, Exclusions)
 
-### Phase 8: Real X12 EDI Parser — Mar 30 2026
-- 834/837 Parser, 835 Generator, Transaction Log
+### Data Tiering & Reporting (Phase 4 — Current)
+- **Tiering Engine**: Auto-categorizes claims into 3 tiers:
+  - Tier 1 (Auto-Pilot): Claims < $2,500 passing all edits
+  - Tier 2 (Clinical Review): Trigger CPT codes or Prior Auths
+  - Tier 3 (Stop-Loss Trigger): >50% specific or 80% aggregate attachment
+- **Broker Deck**: Surplus vs Paid with loss ratios, PEPM across all groups
+- **Carrier Bordereaux**: Eligibility/premium reconciliation with member details
+- **Utilization Review**: Top 10 providers, costliest CPT codes, network leakage %
+- **Risk Dial**: Real-time Agg/Spec stop-loss utilization on Dashboard (auto-renders when groups have stop-loss configured)
+- Batch claim classification with tier persistence
 
-### Phase 9: External Data Export Engine — Mar 30 2026
-- Export 834/278 Feeds, Vendor Config, Transmission Log
+### AI Provider Call Center Agent (Phase 4 — Current)
+- GPT-5.2 powered HIPAA-compliant AI assistant
+- Eligibility verification via Member data + Hour Bank
+- Claim status inquiry with adjudication notes
+- Accumulator inquiry (deductible, OOP, annual max)
+- Pre-certification check against plan rules
+- Provider authentication via Tax ID + Member ID
+- Multi-session support with conversation history
+- Escalation to Examiner Queue with Call Log tickets
+- Quick-prompt UI with suggested queries
 
-### Phase 10: SFTP Scheduler Module — Mar 30 2026
-- Connection Manager, Automated Intake Scheduling, Intelligent Routing
+## Testing History
+- Iteration 16: SFTP Tests — 100% Pass
+- Iteration 17: Funding Module Tests — 100% Pass
+- Iteration 18: Finance & Disbursement — 100% Pass
+- Iteration 19: Data Tiering, Reports, AI Agent, Plan Builder — 100% (29/29 backend, all frontend)
 
-### Phase 11: ASO/Level Funded Funding Module — Mar 30 2026
-- Toggleable Funding Types (ASO/Level Funded/Fully Insured) in Groups
-- Level Funded Claims Reserve Fund with deficit detection
-- Dashboard Funding Health Widget
+## Mocked Integrations
+- **MSAL Azure AD**: JWT fallback for local dev
+- **Wells Fargo API**: Simulated in services/wells_fargo.py
+- **Email Alerts**: Risk trigger emails logged, not sent
 
-### Phase 12: Finance & Disbursement Module — Mar 30 2026
-- **ASO Check Run Manager** (`/check-runs`): Provider-level claim batching (consolidate by NPI), 3-tab interface (Pending Runs, Run History, Vendor Payables), 5 real-time metrics
-- **Wells Fargo API Integration** (SIMULATED): Funding Pull (employer → trust), Disbursement Push (trust → providers), WF Transaction IDs recorded on claims, WF webhook handler for auto-confirmation, Transaction status tracking per check run
-- **Vendor Fee Management**: Non-claim vendor fees (PBM Access, Telehealth PEPM, Network Access, Admin Fee) as line items in check runs, CRUD management in Vendor Payables tab
-- **Funding Request PDF**: Downloadable PDF with financial summary, provider payment schedule, vendor fee line items, WF transaction references
-- **Check Run Lifecycle**: Generate (WF pull) → Confirm Funding (webhook) → Execute (WF disburse + ACH batch) → Claims to Paid with wf_transaction_id
-
-## Key API Endpoints
-- Check Runs: `/groups`, `/pending`, `/generate-funding-request`, `/{id}/confirm-funding`, `/{id}/execute`, `/{id}/pdf`, `/wf-webhook`, `/wf-transactions/{id}`, `/vendor-payables`
-- Groups: CRUD + `/reserve-fund`, `/reserve-deposit`, `/pulse`
-- Dashboard: `/metrics`, `/claims-by-status`, `/funding-health`
-- EDI: `/validate-834`, `/upload-834`, `/generate-835`, `/export-834`, `/export-auth-feed`
-- SFTP: `/connections`, `/schedules`, `/intake-logs`
-- Members, Hour Bank, Settings, Reports, etc.
-
-## Upcoming Tasks
-- **P1**: Carrier Bordereaux Reporting Module
-- **P1**: Azure AD MSAL real credentials
-- **P2**: Network repricing vs contracted rates
-- **P2**: External billing system API
-- **P2**: Connect real Wells Fargo credentials
-- **P3**: Member self-service portal
-
-## Mocked/Stubbed
-- MSAL Azure AD (JWT fallback)
-- Wells Fargo API (SIMULATED — auto-success)
-
-## Test Reports
-- Iteration 13: Hour Bank — 100%
-- Iteration 14: Member 360 — 100%
-- Iteration 15: X12 EDI Parser — 100%
-- Iteration 16: SFTP Scheduler + Export — 100% (24/24)
-- Iteration 17: ASO/Level Funded Funding — 100% (28/28)
-- Iteration 18: Finance & Disbursement + WF — 100% (23/23 + all frontend)
+## Upcoming Tasks (Backlog)
+- P1: Azure AD real MSAL credentials configuration
+- P2: Network repricing (Medicare vs contracted rates)
+- P2: External billing system API integration
+- P2: Real Wells Fargo credentials
+- P3: Member self-service portal
+- P3: Twilio/Vapi voice integration for AI Agent
