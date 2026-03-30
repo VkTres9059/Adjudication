@@ -5,7 +5,7 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI, collapsible categorized sidebar
-- **Backend**: FastAPI (modular routers), MongoDB, JWT Auth (MSAL fallback), APScheduler
+- **Backend**: FastAPI (20 routers), MongoDB, JWT Auth (MSAL fallback), APScheduler
 - **Structure**: `/app/backend/routers/`, `/app/backend/services/`, `/app/backend/models/`, `/app/backend/core/`
 
 ## Completed Features
@@ -13,73 +13,64 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 ### Phase 1-3: Core Engine + Gateway + Lifecycle
 - Multi-line claims adjudication (Medical, Dental, Vision, Pharmacy)
 - Medicare fee schedule pricing (377+ CPT codes, 87 GPCI localities)
-- Real-time duplicate claim detection
-- JWT auth with role-based access (Admin, Examiner, Viewer)
-- Tiered Authorization Matrix, Examiner Queue with auto-assignment
+- Real-time duplicate claim detection, JWT auth, Tiered Authorization Matrix
 - Group Management with stop-loss, Preventive Coverage module
 - Member lifecycle: reconciliation, retro-term/clawback, age-out rules
 
 ### Phase 4-5: Backend Refactoring + Navigation
-- Modular router architecture (19 routers)
-- Collapsible categorized sidebar
+- Modular router architecture, Collapsible categorized sidebar
 
 ### Phase 6: Variable Hour Bank Module — Mar 29 2026
-- Multi-Tier Banking (Current + Reserve), Predictive Eligibility Alerts
-- Automated Bridge Payments, Manual Hour Entry
-- Claims Integration Gatekeeper with eligibility source tracking
+- Multi-Tier Banking, Predictive Eligibility, Bridge Payments
 
 ### Phase 7: Member 360 View — Mar 30 2026
-- Financial Accumulator Dashboard (Individual/Family Deductible, OOP Max progress bars)
-- Claims History tab with one-click inline EOB
-- Dependent & Household Management with cross-accumulation
-- Hour Bank status in header, static UI layout
+- Financial Accumulators, Claims History, Dependent Management
 
 ### Phase 8: Real X12 EDI Parser — Mar 30 2026
-- 834/837 Parser with full X12 envelope validation
-- 835 Generator with compliant ISA/GS/ST segments
-- Validate/Preview endpoints, Transaction Log
+- 834/837 Parser, 835 Generator, Transaction Log
 
 ### Phase 9: External Data Export Engine — Mar 30 2026
-- Export 834 Enrollment Feed, Authorization 278 Feed
-- Vendor Feed Configuration CRUD, Transmission Log
-- HIPAA 5010 X12 and CSV format support
+- Export 834/278 Feeds, Vendor Config, Transmission Log
 
 ### Phase 10: SFTP Scheduler Module — Mar 30 2026
-- SFTP Connection Manager with Test Connection button
-- APScheduler-backed automated intake scheduling (Hourly/Daily/Weekly)
-- Intelligent Routing: 834→Enrollment, 835→Adjudication, Work Reports→Hour Bank
-- Intake Logs & Error Handling with Duplicates queue integration
+- Connection Manager, Automated Intake Scheduling, Intelligent Routing
 
 ### Phase 11: ASO/Level Funded Funding Module — Mar 30 2026
-- **ASO Check Run Manager**: Weekly claim aggregation, Funding Request generation, Check Run execution with ACH batch generation. Full lifecycle: pending_funding → funded → executed (claims move to 'paid')
-- **Level Funded Claims Reserve Fund**: Virtual claims bucket with monthly deposit tracking, auto-deduction as claims adjudicate, deficit detection, Aggregate Stop-Loss flagging, 6-month rolling breakdown
-- **Toggleable Funding Types**: Mandatory `funding_type` dropdown (ASO/Level Funded/Fully Insured) in Create Group wizard. Dynamic UI shows Check Run or Reserve Tracker based on type
-- **Dashboard Funding Health Widget**: Real-time ASO (Pending Funding vs Paid), Level Funded (Expected Fund vs Actual Claims vs Surplus), Fully Insured summary. Deficit groups highlighted
-- **Static UI**: All financial ledgers, check run tables, and reserve trackers render without layout shift
+- Toggleable Funding Types (ASO/Level Funded/Fully Insured) in Groups
+- Level Funded Claims Reserve Fund with deficit detection
+- Dashboard Funding Health Widget
+
+### Phase 12: Finance & Disbursement Module — Mar 30 2026
+- **ASO Check Run Manager** (`/check-runs`): Provider-level claim batching (consolidate by NPI), 3-tab interface (Pending Runs, Run History, Vendor Payables), 5 real-time metrics
+- **Wells Fargo API Integration** (SIMULATED): Funding Pull (employer → trust), Disbursement Push (trust → providers), WF Transaction IDs recorded on claims, WF webhook handler for auto-confirmation, Transaction status tracking per check run
+- **Vendor Fee Management**: Non-claim vendor fees (PBM Access, Telehealth PEPM, Network Access, Admin Fee) as line items in check runs, CRUD management in Vendor Payables tab
+- **Funding Request PDF**: Downloadable PDF with financial summary, provider payment schedule, vendor fee line items, WF transaction references
+- **Check Run Lifecycle**: Generate (WF pull) → Confirm Funding (webhook) → Execute (WF disburse + ACH batch) → Claims to Paid with wf_transaction_id
 
 ## Key API Endpoints
-- Check Runs: `/check-runs/groups`, `/check-runs/pending`, `/check-runs/generate-funding-request`, `/check-runs/{id}/confirm-funding`, `/check-runs/{id}/execute`, `/check-runs`
-- Groups: CRUD + `/reserve-fund`, `/reserve-deposit`, `/pulse`, `/attach-plan`
-- Dashboard: `/metrics`, `/claims-by-status`, `/claims-by-type`, `/recent-activity`, `/funding-health`
-- EDI: `/validate-834`, `/upload-834`, `/validate-837`, `/upload-837`, `/generate-835`, `/export-834`, `/export-auth-feed`, `/transmissions`
-- SFTP: `/connections`, `/connections/{id}/test`, `/schedules`, `/schedules/{id}/toggle`, `/intake-logs`
-- Members: CRUD + `/accumulators`, `/claims-history`, `/dependents`
-- Hour Bank: `/upload-work-report`, `/{id}/manual-entry`, `/{id}/bridge-payment`, `/run-monthly`
-- Settings: `/adjudication-gateway`, `/bridge-payment`, `/vendors`
+- Check Runs: `/groups`, `/pending`, `/generate-funding-request`, `/{id}/confirm-funding`, `/{id}/execute`, `/{id}/pdf`, `/wf-webhook`, `/wf-transactions/{id}`, `/vendor-payables`
+- Groups: CRUD + `/reserve-fund`, `/reserve-deposit`, `/pulse`
+- Dashboard: `/metrics`, `/claims-by-status`, `/funding-health`
+- EDI: `/validate-834`, `/upload-834`, `/generate-835`, `/export-834`, `/export-auth-feed`
+- SFTP: `/connections`, `/schedules`, `/intake-logs`
+- Members, Hour Bank, Settings, Reports, etc.
 
 ## Upcoming Tasks
-- **P1**: Build Carrier Bordereaux Reporting Module
-- **P1**: Configure real Azure AD credentials for MSAL
+- **P1**: Carrier Bordereaux Reporting Module
+- **P1**: Azure AD MSAL real credentials
 - **P2**: Network repricing vs contracted rates
 - **P2**: External billing system API
+- **P2**: Connect real Wells Fargo credentials
 - **P3**: Member self-service portal
 
 ## Mocked/Stubbed
 - MSAL Azure AD (JWT fallback)
+- Wells Fargo API (SIMULATED — auto-success)
 
 ## Test Reports
-- Iteration 13: Hour Bank Upgrade — 100% pass
-- Iteration 14: Member 360 View — 100% pass
-- Iteration 15: X12 EDI Parser — 100% pass
-- Iteration 16: SFTP Scheduler + Export Engine — 100% pass (24/24)
-- Iteration 17: ASO/Level Funded Funding Module — 100% pass (28/28 backend, all frontend)
+- Iteration 13: Hour Bank — 100%
+- Iteration 14: Member 360 — 100%
+- Iteration 15: X12 EDI Parser — 100%
+- Iteration 16: SFTP Scheduler + Export — 100% (24/24)
+- Iteration 17: ASO/Level Funded Funding — 100% (28/28)
+- Iteration 18: Finance & Disbursement + WF — 100% (23/23 + all frontend)
