@@ -8,7 +8,7 @@ from routers import (
     duplicates, dashboard, reports, edi, codes,
     network, prior_auth, preventive, settings, audit,
     hour_bank, sftp, check_runs, tiering, ai_agent,
-    payments, admin,
+    payments, admin, vapi_voice, zelis,
 )
 from services.sftp_scheduler import start_scheduler, rebuild_jobs
 
@@ -48,6 +48,8 @@ api_router.include_router(tiering.router)
 api_router.include_router(ai_agent.router)
 api_router.include_router(payments.router)
 api_router.include_router(admin.router)
+api_router.include_router(vapi_voice.router)
+api_router.include_router(zelis.router)
 
 app.include_router(api_router)
 

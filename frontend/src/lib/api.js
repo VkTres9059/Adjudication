@@ -287,6 +287,25 @@ export const aiAgentAPI = {
   resolveCallLog: (logId, notes) => api.put(`/ai-agent/call-logs/${logId}/resolve`, null, { params: notes ? { notes } : {} }),
 };
 
+export const vapiAPI = {
+  getConfig: () => api.get('/vapi/config'),
+  getAssistant: () => api.get('/vapi/assistant'),
+  createAssistant: (serverUrl) => api.post('/vapi/assistant', { server_url: serverUrl }),
+  calls: (limit) => api.get('/vapi/calls', { params: limit ? { limit } : {} }),
+  callDetail: (callId) => api.get(`/vapi/calls/${callId}`),
+};
+
+export const zelisAPI = {
+  methods: () => api.get('/zelis/methods'),
+  submit: (data) => api.post('/zelis/submit', data),
+  batchSubmit: (data) => api.post('/zelis/batch-submit', data),
+  status: (zelisTransactionId) => api.get(`/zelis/status/${zelisTransactionId}`),
+  transactions: (params) => api.get('/zelis/transactions', { params }),
+  eraDocuments: (limit) => api.get('/zelis/era-documents', { params: limit ? { limit } : {} }),
+  generateEra: (paymentIds) => api.post('/zelis/era-835', { payment_ids: paymentIds }),
+  summary: () => api.get('/zelis/summary'),
+};
+
 export const paymentsAPI = {
   list: (params) => api.get('/payments', { params }),
   summary: () => api.get('/payments/summary'),
