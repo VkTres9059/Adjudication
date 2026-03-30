@@ -212,6 +212,23 @@ export const examinerAPI = {
   listExaminers: () => api.get('/examiner/list'),
 };
 
+export const sftpAPI = {
+  getConnections: () => api.get('/sftp/connections'),
+  createConnection: (data) => api.post('/sftp/connections', data),
+  updateConnection: (id, data) => api.put(`/sftp/connections/${id}`, data),
+  deleteConnection: (id) => api.delete(`/sftp/connections/${id}`),
+  testConnection: (id) => api.post(`/sftp/connections/${id}/test`),
+  testInline: (data) => api.post('/sftp/connections/test-inline', data),
+  getSchedules: () => api.get('/sftp/schedules'),
+  createSchedule: (data) => api.post('/sftp/schedules', data),
+  updateSchedule: (id, data) => api.put(`/sftp/schedules/${id}`, data),
+  deleteSchedule: (id) => api.delete(`/sftp/schedules/${id}`),
+  toggleSchedule: (id) => api.put(`/sftp/schedules/${id}/toggle`),
+  runNow: (id) => api.post(`/sftp/schedules/${id}/run-now`),
+  intakeLogs: (limit = 50, status) =>
+    api.get('/sftp/intake-logs', { params: { limit, ...(status ? { status } : {}) } }),
+};
+
 export const hourBankAPI = {
   getLedger: (memberId) => api.get(`/hour-bank/${memberId}`),
   uploadWorkReport: (file) => {

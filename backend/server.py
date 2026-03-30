@@ -7,8 +7,9 @@ from routers import (
     auth, plans, members, groups, claims, examiner,
     duplicates, dashboard, reports, edi, codes,
     network, prior_auth, preventive, settings, audit,
-    hour_bank,
+    hour_bank, sftp,
 )
+from services.sftp_scheduler import start_scheduler, rebuild_jobs
 
 app = FastAPI(title="FletchFlow Claims Adjudication System", version="2.0.0")
 
@@ -40,8 +41,15 @@ api_router.include_router(preventive.router)
 api_router.include_router(settings.router)
 api_router.include_router(audit.router)
 api_router.include_router(hour_bank.router)
+api_router.include_router(sftp.router)
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def startup_scheduler():
+    start_scheduler()
+    await rebuild_jobs()
 
 
 @app.get("/")

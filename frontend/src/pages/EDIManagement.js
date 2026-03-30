@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ediAPI, settingsAPI } from '../lib/api';
+import { ediAPI, settingsAPI, sftpAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -16,6 +16,7 @@ import {
   X,
   Send,
   ArrowRight,
+  Server,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -38,6 +39,7 @@ export default function EDIManagement() {
   const [transactions, setTransactions] = useState([]);
   const [transmissions, setTransmissions] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [intakeLogs, setIntakeLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [txFilter, setTxFilter] = useState('all');
 
@@ -77,7 +79,7 @@ export default function EDIManagement() {
 
   const fetchAll = async () => {
     setLoading(true);
-    await Promise.all([fetchTransactions(), fetchTransmissions(), fetchVendors()]);
+    await Promise.all([fetchTransactions(), fetchTransmissions(), fetchVendors(), fetchIntakeLogs()]);
     setLoading(false);
   };
 
@@ -100,6 +102,13 @@ export default function EDIManagement() {
       const res = await settingsAPI.getVendors();
       setVendors(res.data);
     } catch { setVendors([]); }
+  };
+
+  const fetchIntakeLogs = async () => {
+    try {
+      const res = await sftpAPI.intakeLogs(50);
+      setIntakeLogs(res.data);
+    } catch { setIntakeLogs([]); }
   };
 
   // ── Validate (preview) ──
@@ -220,6 +229,9 @@ export default function EDIManagement() {
           </TabsTrigger>
           <TabsTrigger value="history" className="data-[state=active]:bg-white text-sm" data-testid="edi-tab-history">
             <Clock className="h-3.5 w-3.5 mr-1.5" />Inbound Log
+          </TabsTrigger>
+          <TabsTrigger value="intake" className="data-[state=active]:bg-white text-sm" data-testid="edi-tab-intake">
+            <Server className="h-3.5 w-3.5 mr-1.5" />SFTP Intake
           </TabsTrigger>
         </TabsList>
 
@@ -513,6 +525,51 @@ export default function EDIManagement() {
                       <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{tx.segment_count || '—'}</TableCell>
                       <TableCell className="text-right"><span className={`font-['JetBrains_Mono'] text-xs tabular-nums ${tx.error_count > 0 ? 'text-[#C24A3B] font-bold' : 'text-[#8A8A85]'}`}>{tx.error_count}</span></TableCell>
                       <TableCell className="text-xs tabular-nums text-[#8A8A85]">{new Date(tx.created_at).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ═══ SFTP INTAKE HISTORY TAB ═══ */}
+        <TabsContent value="intake" className="mt-4">
+          <div className="bg-white rounded-xl border border-[#E2E2DF] p-5" data-testid="intake-history-log">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#5C2D91]/10 rounded-lg flex items-center justify-center"><Server className="h-5 w-5 text-[#5C2D91]" /></div>
+                <div><h3 className="text-base font-semibold text-[#1C1C1A] font-['Outfit']">SFTP Intake History</h3><p className="text-[10px] text-[#8A8A85]">Automated file ingestion: date, filename, records processed, status</p></div>
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchIntakeLogs} className="text-xs" data-testid="refresh-intake-logs"><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button>
+            </div>
+            {intakeLogs.length === 0 ? (
+              <div className="bg-[#F7F7F4] rounded-lg p-8 text-center"><Server className="h-8 w-8 text-[#8A8A85] mx-auto mb-2" /><p className="text-sm text-[#8A8A85]">No SFTP intake runs yet. Configure schedules in Settings &rarr; SFTP Scheduler.</p></div>
+            ) : (
+              <Table>
+                <TableHeader><TableRow className="border-[#E2E2DF]">
+                  <TableHead>Date</TableHead><TableHead>Schedule</TableHead><TableHead>Connection</TableHead><TableHead>File Name</TableHead><TableHead>Route</TableHead><TableHead className="text-right">Records</TableHead><TableHead>Status</TableHead><TableHead>Error</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {intakeLogs.map((log) => (
+                    <TableRow key={log.id} className="table-row h-[44px]" data-testid={`intake-row-${log.id}`}>
+                      <TableCell className="text-xs tabular-nums text-[#8A8A85]">{new Date(log.started_at).toLocaleString()}</TableCell>
+                      <TableCell className="text-xs">{log.schedule_name}</TableCell>
+                      <TableCell className="text-xs">{log.connection_name}</TableCell>
+                      <TableCell className="text-xs font-['JetBrains_Mono'] truncate max-w-[200px]">{log.filename || '—'}</TableCell>
+                      <TableCell><Badge className={
+                        log.route_type === '834' ? 'bg-[#1A3636] text-white border-0 text-[10px]' :
+                        log.route_type === 'work_report' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                        'bg-[#4A6FA5] text-white border-0 text-[10px]'
+                      }>{log.route_type === '834' ? 'Enrollment' : log.route_type === 'work_report' ? 'Hour Bank' : 'Adjudication'}</Badge></TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs tabular-nums">{log.records_processed}</TableCell>
+                      <TableCell><Badge className={
+                        log.status === 'success' ? 'bg-[#4B6E4E] text-white border-0 text-[9px]' :
+                        log.status === 'partial' ? 'bg-[#C9862B] text-white border-0 text-[9px]' :
+                        log.status === 'running' ? 'bg-[#4A6FA5] text-white border-0 text-[9px]' :
+                        'bg-[#C24A3B] text-white border-0 text-[9px]'
+                      }>{log.status}</Badge></TableCell>
+                      <TableCell className="text-[10px] text-[#C24A3B] truncate max-w-[200px]">{log.error_message || '—'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
