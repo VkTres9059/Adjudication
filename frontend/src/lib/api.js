@@ -255,6 +255,12 @@ export const checkRunAPI = {
   execute: (runId) => api.post(`/check-runs/${runId}/execute`),
   list: (groupId, status) => api.get('/check-runs', { params: { ...(groupId ? { group_id: groupId } : {}), ...(status ? { status } : {}) } }),
   get: (runId) => api.get(`/check-runs/${runId}`),
+  pdfUrl: (runId) => `${API_URL}/api/check-runs/${runId}/pdf`,
+  wfTransactions: (runId) => api.get(`/check-runs/wf-transactions/${runId}`),
+  vendorPayables: (groupId) => api.get('/check-runs/vendor-payables', { params: groupId ? { group_id: groupId } : {} }),
+  createVendorPayable: (data) => api.post('/check-runs/vendor-payables', data),
+  updateVendorPayable: (id, data) => api.put(`/check-runs/vendor-payables/${id}`, data),
+  deleteVendorPayable: (id) => api.delete(`/check-runs/vendor-payables/${id}`),
 };
 
 export const groupsAPI = {
