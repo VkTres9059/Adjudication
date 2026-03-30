@@ -93,17 +93,38 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 - Iteration 19: Data Tiering, Reports, AI Agent, Plan Builder — 100% (29/29 backend)
 - Iteration 20: Payments, Admin Portal, Audit, Rx Rules, EOB/EOP, IDR — 100% (18/18 backend, all frontend)
 - Iteration 21: P0 ClaimResponse adjudication fields fix — 100% (10/10 backend, all frontend)
+- Iteration 22: Vapi Voice Agent + Zelis Payment Vendor — 100% (16/16 backend, all frontend)
+
+### Phase 6 — Voice Agent & Zelis Payments
+**Vapi Voice Integration:**
+- Vapi assistant created (HIPAA-enabled, GPT-4o voice, Deepgram Nova-2 transcription)
+- Webhook handler: tool-calls (eligibility, claims, prior-auth, escalation), status-update, end-of-call-report
+- Frontend Voice Agent tab with live call controls, mute, duration timer, real-time transcript
+- Call history tracking in MongoDB (vapi_calls collection)
+- System prompt: "Morgan" — professional healthcare provider services voice agent
+
+**Zelis Payment Vendor (MOCKED — ready for real credentials):**
+- 5 payment methods: ACH, Virtual Card (2.5% fee), Paper Check, ACH+ (next-day), ZAPP Digital (1.8%)
+- Payment submission with trace number, processing fee calculation, virtual card issuance
+- Payment status tracking with time-based progression simulation
+- ERA 835 generation (ANSI X12 format) with CAS adjustment reason codes
+- Batch payment submission
+- Zelis Network tab in Payment Center with transactions table and network summary
+- ERA 835 tab with document listing and line item details
 
 ## Mocked Integrations
 - **MSAL Azure AD**: JWT fallback for local dev
 - **Wells Fargo API**: Simulated in services/wells_fargo.py
+- **Zelis Payment API**: Simulated in services/zelis_payment.py (ready for real credentials)
 - **Email Alerts**: Risk trigger emails logged, not sent
+
+## 3rd Party Integrations
+- **OpenAI GPT-5.2**: Via emergentintegrations (Emergent LLM Key) — AI text agent
+- **Vapi AI**: Voice agent platform (API key: eae8baa1...) — assistant_id: f5804e4b-3d6a-4146-a614-08cf359e50db
 
 ## Upcoming Tasks (Backlog)
 - P1: Azure AD real MSAL credentials configuration
 - P2: Network repricing (Medicare vs contracted rates)
 - P2: External billing system API integration
-- P2: Real Wells Fargo credentials
-- P2: Zelis payment vendor integration
+- P2: Replace Zelis mock with real Zelis API credentials
 - P3: Member self-service portal
-- P3: Twilio/Vapi voice integration for AI Agent
