@@ -81,10 +81,18 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 
 ---
 
+**Adjudication Enhancement (Phase 5 Final):**
+- Fixed P0 bug: ClaimResponse Pydantic model now returns all adjudication fields (data_tier, tier_label, plan_version, cob_applied, stop_loss_flag, precert_penalty_applied, payment_ready, network_status, idr_case_number, idr_status)
+- Claims UI: Tier column (T1/T2/T3 badges), Flags column (COB/IDR/SL/PC), Docs column (EOB/EOP PDF links)
+- Claims Lifecycle Funnel on Dashboard
+- Auto data-tier classification in adjudication engine
+- Auto payment queueing for Tier 1 claims
+
 ## Testing History
 - Iterations 16-18: SFTP, Funding, Check Runs, Wells Fargo — 100% Pass
 - Iteration 19: Data Tiering, Reports, AI Agent, Plan Builder — 100% (29/29 backend)
 - Iteration 20: Payments, Admin Portal, Audit, Rx Rules, EOB/EOP, IDR — 100% (18/18 backend, all frontend)
+- Iteration 21: P0 ClaimResponse adjudication fields fix — 100% (10/10 backend, all frontend)
 
 ## Mocked Integrations
 - **MSAL Azure AD**: JWT fallback for local dev
