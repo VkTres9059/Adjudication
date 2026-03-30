@@ -22,6 +22,8 @@ import EDIManagement from "./pages/EDIManagement";
 import CheckRunManager from "./pages/CheckRunManager";
 import DataTiering from "./pages/DataTiering";
 import AIAgent from "./pages/AIAgent";
+import PaymentCenter from "./pages/PaymentCenter";
+import AdminPortal from "./pages/AdminPortal";
 import Layout from "./components/Layout";
 import "./App.css";
 
@@ -97,6 +99,8 @@ function AppRoutes() {
         <Route path="check-runs" element={<CheckRunManager />} />
         <Route path="tiering" element={<DataTiering />} />
         <Route path="ai-agent" element={<AIAgent />} />
+        <Route path="payments" element={<PaymentCenter />} />
+        <Route path="admin" element={<AdminPortal />} />
         <Route path="reports" element={<Reports />} />
         <Route path="edi" element={<EDIManagement />} />
         <Route 

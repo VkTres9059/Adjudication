@@ -162,10 +162,6 @@ export const ediAPI = {
     }}),
 };
 
-export const auditAPI = {
-  list: (params) => api.get('/audit-logs', { params }),
-};
-
 export const networkAPI = {
   contracts: (params) => api.get('/network/contracts', { params }),
   createContract: (data) => api.post('/network/contracts', data),
@@ -271,6 +267,7 @@ export const groupsAPI = {
   getReserveFund: (groupId) => api.get(`/groups/${groupId}/reserve-fund`),
   manualDeposit: (groupId, amount, description) =>
     api.post(`/groups/${groupId}/reserve-deposit`, null, { params: { amount, description } }),
+  autoAdjustTiers: (groupId) => api.post(`/groups/${groupId}/auto-adjust-tiers`),
 };
 
 export const tieringAPI = {
@@ -287,4 +284,41 @@ export const aiAgentAPI = {
   escalate: (data) => api.post('/ai-agent/escalate', data),
   callLogs: (status, limit) => api.get('/ai-agent/call-logs', { params: { ...(status ? { status } : {}), ...(limit ? { limit } : {}) } }),
   resolveCallLog: (logId, notes) => api.put(`/ai-agent/call-logs/${logId}/resolve`, null, { params: notes ? { notes } : {} }),
+};
+
+export const paymentsAPI = {
+  list: (params) => api.get('/payments', { params }),
+  summary: () => api.get('/payments/summary'),
+  create: (data) => api.post('/payments', data),
+  createBatch: (data) => api.post('/payments/batch', data),
+  reverse: (data) => api.post('/payments/reverse', data),
+  adjust: (data) => api.post('/payments/adjust', data),
+  adjustments: (claimId) => api.get('/payments/adjustments', { params: claimId ? { claim_id: claimId } : {} }),
+  batches: (status) => api.get('/payments/batches', { params: status ? { status } : {} }),
+  reconciliation: (groupId) => api.get('/payments/reconciliation', { params: groupId ? { group_id: groupId } : {} }),
+};
+
+export const adminAPI = {
+  portalRoles: () => api.get('/admin/portal-roles'),
+  users: (role, portalRole) => api.get('/admin/users', { params: { ...(role ? { role } : {}), ...(portalRole ? { portal_role: portalRole } : {}) } }),
+  createUser: (data) => api.post('/admin/users', data),
+  updateAccess: (userId, data) => api.put(`/admin/users/${userId}/access`, data),
+  tpas: () => api.get('/admin/tpas'),
+  onboardTpa: (data) => api.post('/admin/tpas', data),
+  updateTpa: (tpaId, data) => api.put(`/admin/tpas/${tpaId}`, data),
+  systemOverview: () => api.get('/admin/system-overview'),
+  traceability: (claimId) => api.get(`/admin/traceability/${claimId}`),
+};
+
+export const auditAPI = {
+  logs: (params) => api.get('/audit-logs', { params }),
+  summary: () => api.get('/audit-logs/summary'),
+};
+
+export const planVersionsAPI = {
+  history: (planId) => api.get(`/plans/${planId}/versions`),
+  atVersion: (planId, version) => api.get(`/plans/${planId}/versions/${version}`),
+  diff: (planId, v1, v2) => api.get(`/plans/${planId}/diff`, { params: { v1, v2 } }),
+  rxTemplate: () => api.get('/plans/rx-rules/template'),
+  classifyDrug: (params) => api.get('/plans/rx-rules/classify', { params }),
 };

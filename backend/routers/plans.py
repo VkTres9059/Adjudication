@@ -58,6 +58,32 @@ async def list_plans(
     return [PlanResponse(**p) for p in plans]
 
 
+# ── Rx Rules (static routes must precede /{plan_id}) ──
+
+@router.get("/rx-rules/template")
+async def get_rx_rules_template_endpoint(user: dict = Depends(get_current_user)):
+    """Get default Rx rules template for plan configuration."""
+    from services.rx_engine import get_rx_rules_template
+    return get_rx_rules_template()
+
+
+@router.get("/rx-rules/classify")
+async def classify_drug_endpoint(
+    hcpcs_code: str = Query(default=""),
+    drug_name: str = Query(default=""),
+    plan_id: str = Query(default=""),
+    user: dict = Depends(get_current_user),
+):
+    """Classify a drug into formulary tier and apply plan rules."""
+    from services.rx_engine import classify_drug, apply_rx_rules
+    classification = classify_drug(hcpcs_code=hcpcs_code, drug_name=drug_name)
+    if plan_id:
+        plan = await db.plans.find_one({"id": plan_id}, {"_id": 0})
+        if plan:
+            classification = apply_rx_rules(plan, classification)
+    return classification
+
+
 @router.get("/{plan_id}", response_model=PlanResponse)
 async def get_plan(plan_id: str, user: dict = Depends(get_current_user)):
     plan = await db.plans.find_one({"id": plan_id}, {"_id": 0})
@@ -72,6 +98,11 @@ async def update_plan(plan_id: str, plan_data: PlanCreate, user: dict = Depends(
     if not existing:
         raise HTTPException(status_code=404, detail="Plan not found")
 
+    # Snapshot current version before update
+    from services.plan_versioning import snapshot_plan_version
+    change_summary = f"Updated to version {existing['version'] + 1}"
+    await snapshot_plan_version(existing, user["id"], change_summary)
+
     now = datetime.now(timezone.utc).isoformat()
     update_doc = {
         **plan_data.model_dump(),
@@ -85,6 +116,7 @@ async def update_plan(plan_id: str, plan_data: PlanCreate, user: dict = Depends(
     await db.audit_logs.insert_one({
         "id": str(uuid.uuid4()),
         "action": "plan_updated",
+        "entity_type": "plan", "entity_id": plan_id,
         "user_id": user["id"],
         "details": {"plan_id": plan_id, "new_version": existing["version"] + 1},
         "timestamp": now
@@ -363,3 +395,41 @@ async def generate_sbc_pdf(plan_id: str, token: Optional[str] = Query(None)):
     buf.seek(0)
     filename = f"SBC_{plan.get('name', 'Plan').replace(' ', '_')}_{plan_id[:8]}.pdf"
     return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+# ── Plan Version History ──
+
+@router.get("/{plan_id}/versions")
+async def get_plan_versions(plan_id: str, user: dict = Depends(get_current_user)):
+    """Get version history for a plan."""
+    from services.plan_versioning import get_plan_version_history
+    plan = await db.plans.find_one({"id": plan_id}, {"_id": 0})
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    versions = await get_plan_version_history(plan_id)
+    return {"plan_id": plan_id, "current_version": plan.get("version", 1), "versions": versions}
+
+
+@router.get("/{plan_id}/versions/{version_num}")
+async def get_plan_at_version(plan_id: str, version_num: int, user: dict = Depends(get_current_user)):
+    """Get plan snapshot at a specific version."""
+    from services.plan_versioning import get_plan_at_version as _get
+    snapshot = await _get(plan_id, version_num)
+    if not snapshot:
+        raise HTTPException(404, "Version not found")
+    return snapshot
+
+
+@router.get("/{plan_id}/diff")
+async def diff_plan_versions_endpoint(
+    plan_id: str,
+    v1: int = Query(...),
+    v2: int = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Compare two plan versions."""
+    from services.plan_versioning import diff_plan_versions
+    return await diff_plan_versions(plan_id, v1, v2)
+
+
+# ── Rx Rules ── (must be before /{plan_id})

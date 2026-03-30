@@ -47,6 +47,50 @@ async def create_group(group_data: GroupCreate, user: dict = Depends(require_rol
     return doc
 
 
+@router.post("/{group_id}/auto-adjust-tiers")
+async def auto_adjust_enrollment_tiers(group_id: str, user: dict = Depends(require_roles([UserRole.ADMIN]))):
+    """Auto-adjust enrollment tiers based on dependent count.
+    EE (employee_only), ES (employee_spouse), EC (employee_child), Family (>2 deps)."""
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(404, "Group not found")
+
+    members = await db.members.find({"group_id": group_id, "status": "active"}, {"_id": 0}).to_list(100000)
+    subscribers = {m["member_id"]: m for m in members if m.get("relationship") == "subscriber"}
+    dependents = [m for m in members if m.get("relationship") != "subscriber"]
+
+    # Group dependents by subscriber
+    dep_by_sub = {}
+    for d in dependents:
+        sub_id = d.get("subscriber_id", d.get("member_id", ""))
+        dep_by_sub.setdefault(sub_id, []).append(d)
+
+    adjustments = []
+    for sub_id, sub in subscribers.items():
+        deps = dep_by_sub.get(sub_id, [])
+        dep_count = len(deps)
+        has_spouse = any(d.get("relationship") == "spouse" for d in deps)
+        has_child = any(d.get("relationship") in ("child", "dependent") for d in deps)
+
+        if dep_count == 0:
+            new_tier = "employee_only"
+        elif dep_count >= 2 or (has_spouse and has_child):
+            new_tier = "family"
+        elif has_spouse:
+            new_tier = "employee_spouse"
+        elif has_child:
+            new_tier = "employee_child"
+        else:
+            new_tier = "employee_only"
+
+        current_tier = sub.get("enrollment_tier", "employee_only")
+        if current_tier != new_tier:
+            await db.members.update_one({"member_id": sub_id}, {"$set": {"enrollment_tier": new_tier}})
+            adjustments.append({"member_id": sub_id, "from": current_tier, "to": new_tier})
+
+    return {"group_id": group_id, "adjustments": adjustments, "total_adjusted": len(adjustments)}
+
+
 @router.get("")
 async def list_groups(
     status: Optional[str] = None,

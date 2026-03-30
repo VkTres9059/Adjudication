@@ -504,3 +504,72 @@ async def process_cob(claim_id: str, cob: COBInfo, user: dict = Depends(require_
         "cob": cob_record,
         "total_all_payers": round(cob.primary_paid + secondary_pays, 2),
     }
+
+
+# ── EOB / EOP Generation ──
+
+@router.get("/{claim_id}/eob.pdf")
+async def download_eob(claim_id: str, user: dict = Depends(get_current_user)):
+    """Generate and download EOB (Explanation of Benefits) PDF for a claim."""
+    from fastapi.responses import StreamingResponse
+    from services.eob_generator import generate_eob_pdf
+    try:
+        pdf_bytes = await generate_eob_pdf(claim_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    buf = __import__("io").BytesIO(pdf_bytes)
+    claim = await db.claims.find_one({"id": claim_id}, {"claim_number": 1, "_id": 0})
+    cn = claim.get("claim_number", claim_id[:8]) if claim else claim_id[:8]
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename=EOB_{cn}.pdf"})
+
+
+@router.get("/{claim_id}/eop.pdf")
+async def download_eop(claim_id: str, user: dict = Depends(get_current_user)):
+    """Generate and download EOP (Explanation of Payment) PDF for a claim."""
+    from fastapi.responses import StreamingResponse
+    from services.eob_generator import generate_eop_pdf
+    try:
+        pdf_bytes = await generate_eop_pdf(claim_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    buf = __import__("io").BytesIO(pdf_bytes)
+    claim = await db.claims.find_one({"id": claim_id}, {"claim_number": 1, "_id": 0})
+    cn = claim.get("claim_number", claim_id[:8]) if claim else claim_id[:8]
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename=EOP_{cn}.pdf"})
+
+
+# ── IDR Tracking ──
+
+@router.put("/{claim_id}/idr")
+async def update_idr_tracking(
+    claim_id: str,
+    idr_case_number: str = Query(...),
+    idr_status: str = Query(default="pending"),
+    notes: str = Query(default=""),
+    user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR])),
+):
+    """Update IDR (Independent Dispute Resolution) tracking on a claim."""
+    claim = await db.claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    adj_notes = claim.get("adjudication_notes", []) + [
+        f"IDR: Case #{idr_case_number} — Status: {idr_status}" + (f" — {notes}" if notes else "")
+    ]
+    await db.claims.update_one({"id": claim_id}, {"$set": {
+        "idr_case_number": idr_case_number,
+        "idr_status": idr_status,
+        "adjudication_notes": adj_notes,
+    }})
+
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()), "action": "idr_updated",
+        "entity_type": "claim", "entity_id": claim_id,
+        "user_id": user["id"], "timestamp": now,
+        "details": {"idr_case": idr_case_number, "status": idr_status}
+    })
+
+    return {"claim_id": claim_id, "idr_case_number": idr_case_number, "idr_status": idr_status}

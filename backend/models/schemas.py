@@ -86,8 +86,9 @@ class PlanCreate(BaseModel):
     oop_max_individual: float = 5000
     oop_max_family: float = 10000
     network_type: str = "PPO"
+    network_name: str = ""  # Cigna OAP, Anthem BlueCard, etc.
     reimbursement_method: str = "fee_schedule"
-    rbp_medicare_pct: float = 150  # % of Medicare for RBP
+    rbp_medicare_pct: float = 150
     benefits: List[PlanBenefit] = []
     benefit_modules: List[BenefitModule] = []
     network_tiers: List[NetworkTier] = []
@@ -100,6 +101,10 @@ class PlanCreate(BaseModel):
     non_network_reimbursement: str = "reference_based"
     eligibility_threshold: float = 0
     hour_bank_max: float = 0
+    # Rx rules
+    rx_rules: Optional[Dict] = None
+    # Visit-based service limits
+    visit_limits: Optional[Dict] = None  # {"primary_care": 20, "specialist": 12, "pt": 30}
 
 
 class StopLossConfig(BaseModel):
@@ -135,12 +140,23 @@ class GroupCreate(BaseModel):
     sic_code: str = ""
     employee_count: int = 0
     total_premium: float = 0.0
+    premium_per_member: float = 0.0
     mgu_fees: float = 0.0
+    stop_loss_premium: float = 0.0
     funding_type: str = "aso"  # aso, level_funded, fully_insured
-    claims_fund_monthly: float = 0.0  # Monthly claims fund deposit for level_funded
+    claims_fund_monthly: float = 0.0
     stop_loss: Optional[StopLossConfig] = None
     sftp_config: Optional[SFTPConfig] = None
     plan_ids: List[str] = []
+    # Block of Business & Carrier/MGU
+    block_of_business: str = ""
+    carrier: str = ""
+    carrier_policy_number: str = ""
+    mgu: str = ""
+    mgu_contract_id: str = ""
+    # Enrollment tier rules
+    enrollment_tier_logic: str = "manual"  # manual, auto_adjust
+    default_enrollment_tier: str = "employee_only"
 
 
 class GroupResponse(BaseModel):
@@ -213,6 +229,10 @@ class MemberCreate(BaseModel):
     termination_date: Optional[str] = None
     relationship: str = "subscriber"
     address: Optional[Dict] = None
+    # Enrollment tier
+    enrollment_tier: str = "employee_only"  # employee_only, employee_spouse, employee_child, family
+    # COB info
+    cob_info: Optional[Dict] = None
 
 
 class MemberResponse(BaseModel):
@@ -258,6 +278,11 @@ class ClaimCreate(BaseModel):
     prior_auth_number: Optional[str] = None
     source: str = "api"
     external_claim_id: Optional[str] = None
+    # IDR tracking
+    idr_case_number: Optional[str] = None
+    idr_status: Optional[str] = None  # pending, filed, resolved
+    # COB
+    primary_payer_eob: Optional[Dict] = None
 
 
 class ClaimResponse(BaseModel):

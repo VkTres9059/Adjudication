@@ -28,6 +28,8 @@ import {
   CreditCard,
   Phone,
   Gauge,
+  DollarSign,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -51,6 +53,7 @@ const sidebarCategories = [
       { name: 'Reports', href: '/reports', icon: BarChart3 },
       { name: 'Data Tiering', href: '/tiering', icon: Gauge },
       { name: 'EDI Management', href: '/edi', icon: FileUp },
+      { name: 'Payments', href: '/payments', icon: DollarSign },
       { name: 'AI Agent', href: '/ai-agent', icon: Phone },
     ],
   },
@@ -257,6 +260,21 @@ export default function Layout() {
                 >
                   <Settings className="h-4 w-4" />
                   <span>Settings</span>
+                </NavLink>
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-[#1A3636] text-white'
+                        : 'text-[#64645F] hover:bg-[#F0F0EA] hover:text-[#1C1C1A]'
+                    }`
+                  }
+                  onClick={() => setSidebarOpen(false)}
+                  data-testid="nav-admin"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Admin Portal</span>
                 </NavLink>
               </div>
             )}
