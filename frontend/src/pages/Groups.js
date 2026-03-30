@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
-import { plansAPI } from '../lib/api';
+import { plansAPI, groupsAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   Building2,
@@ -19,6 +19,9 @@ import {
   TrendingDown,
   ShieldOff,
   Banknote,
+  AlertTriangle,
+  CreditCard,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -59,7 +62,7 @@ const INITIAL_FORM = {
   name: '', tax_id: '', effective_date: new Date().toISOString().split('T')[0],
   termination_date: '', contact_name: '', contact_email: '', contact_phone: '',
   address: '', city: '', state: '', zip_code: '', sic_code: '', employee_count: 0,
-  total_premium: 0, mgu_fees: 0,
+  total_premium: 0, mgu_fees: 0, funding_type: 'aso', claims_fund_monthly: 0,
   stop_loss: { specific_deductible: 0, aggregate_attachment_point: 0, aggregate_factor: 125, contract_period: '12_month', laser_deductibles: [] },
   sftp_config: { host: '', port: 22, username: '', directory: '/', schedule: 'daily', file_types: ['834', '835'], enabled: false },
   plan_ids: [],
@@ -77,6 +80,7 @@ export default function Groups() {
   const [showMEC, setShowMEC] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
+  const [reserveFund, setReserveFund] = useState(null);
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -104,7 +108,15 @@ export default function Groups() {
       ]);
       setSelectedGroup(detailRes.data);
       setPulse(pulseRes.data);
+      setReserveFund(null);
       setShowDetail(true);
+      // Fetch reserve fund for level_funded groups
+      if (detailRes.data.funding_type === 'level_funded') {
+        try {
+          const rfRes = await groupsAPI.getReserveFund(group.id);
+          setReserveFund(rfRes.data);
+        } catch { /* ok */ }
+      }
     } catch { toast.error('Failed to load group details'); }
   };
 
@@ -195,6 +207,7 @@ export default function Groups() {
                 <TableHead>Tax ID</TableHead>
                 <TableHead>Employees</TableHead>
                 <TableHead>Plans</TableHead>
+                <TableHead>Funding</TableHead>
                 <TableHead>Effective</TableHead>
                 <TableHead>SFTP</TableHead>
                 <TableHead>Status</TableHead>
@@ -208,6 +221,11 @@ export default function Groups() {
                   <TableCell className="font-['JetBrains_Mono'] text-xs">{g.tax_id}</TableCell>
                   <TableCell>{g.employee_count?.toLocaleString()}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{g.plan_ids?.length || 0}</Badge></TableCell>
+                  <TableCell><Badge className={
+                    g.funding_type === 'aso' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
+                    g.funding_type === 'level_funded' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
+                    'bg-[#1A3636] text-white border-0 text-[10px]'
+                  }>{g.funding_type === 'aso' ? 'ASO' : g.funding_type === 'level_funded' ? 'Level Funded' : 'Fully Insured'}</Badge></TableCell>
                   <TableCell className="text-xs">{g.effective_date}</TableCell>
                   <TableCell>
                     <Badge className={g.sftp_config?.enabled ? 'badge-approved' : 'bg-[#F0F0EA] text-[#8A8A85] border-0'}>{g.sftp_config?.enabled ? g.sftp_config.schedule : 'Off'}</Badge>
@@ -242,6 +260,17 @@ export default function Groups() {
                   <div className="space-y-2"><Label>Group Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="input-field" required data-testid="group-name" /></div>
                   <div className="space-y-2"><Label>Tax ID *</Label><Input value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} className="input-field" placeholder="XX-XXXXXXX" required data-testid="group-tax-id" /></div>
                   <div className="space-y-2"><Label>Effective Date *</Label><Input type="date" value={form.effective_date} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} className="input-field" required data-testid="group-eff-date" /></div>
+                  <div className="space-y-2">
+                    <Label>Funding Type *</Label>
+                    <Select value={form.funding_type} onValueChange={(v) => setForm({ ...form, funding_type: v })}>
+                      <SelectTrigger className="input-field" data-testid="group-funding-type"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="aso">ASO (Administrative Services Only)</SelectItem>
+                        <SelectItem value="level_funded">Level Funded</SelectItem>
+                        <SelectItem value="fully_insured">Fully Insured</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-2"><Label>Employee Count</Label><Input type="number" value={form.employee_count} onChange={(e) => setForm({ ...form, employee_count: parseInt(e.target.value) || 0 })} className="input-field" data-testid="group-emp-count" /></div>
                   <div className="space-y-2"><Label>Contact Name</Label><Input value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} className="input-field" /></div>
                   <div className="space-y-2"><Label>Contact Email</Label><Input value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} className="input-field" /></div>
@@ -264,6 +293,13 @@ export default function Groups() {
                     <Input type="number" value={form.mgu_fees} onChange={(e) => setForm({ ...form, mgu_fees: parseFloat(e.target.value) || 0 })} className="input-field" data-testid="group-mgu-fees" />
                     <p className="text-[10px] text-[#8A8A85]">MGU admin fees and carrier retention</p>
                   </div>
+                  {form.funding_type === 'level_funded' && (
+                    <div className="space-y-2 col-span-2">
+                      <Label>Monthly Claims Fund ($)</Label>
+                      <Input type="number" value={form.claims_fund_monthly} onChange={(e) => setForm({ ...form, claims_fund_monthly: parseFloat(e.target.value) || 0 })} className="input-field" data-testid="group-claims-fund" />
+                      <p className="text-[10px] text-[#8A8A85]">Fixed monthly amount deposited into the claims reserve bucket</p>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
@@ -333,6 +369,13 @@ export default function Groups() {
                       <Shield className="h-3 w-3 mr-1" />MEC 1
                     </Badge>
                   )}
+                  <Badge className={
+                    selectedGroup.funding_type === 'aso' ? 'bg-[#4A6FA5] text-white text-[10px] border-0' :
+                    selectedGroup.funding_type === 'level_funded' ? 'bg-[#5C2D91] text-white text-[10px] border-0' :
+                    'bg-[#1A3636] text-white text-[10px] border-0'
+                  } data-testid="funding-type-badge">
+                    {selectedGroup.funding_type === 'aso' ? 'ASO' : selectedGroup.funding_type === 'level_funded' ? 'Level Funded' : selectedGroup.funding_type === 'fully_insured' ? 'Fully Insured' : 'N/A'}
+                  </Badge>
                 </div>
                 <DialogDescription>Tax ID: {selectedGroup.tax_id} | {selectedGroup.city}{selectedGroup.state && `, ${selectedGroup.state}`}</DialogDescription>
               </DialogHeader>
@@ -397,6 +440,82 @@ export default function Groups() {
                   <div className="mt-3 text-[10px] text-[#8A8A85] bg-[#E8F0E9] rounded-md px-3 py-1.5">
                     Surplus = Total Premium - (MGU Fees + Claims Paid)
                   </div>
+                </div>
+              )}
+
+              {/* Level Funded: Claims Reserve Fund Tracker */}
+              {selectedGroup.funding_type === 'level_funded' && reserveFund && (
+                <div className="bg-[#F9F5FF] rounded-xl p-5 mt-4 border border-[#D8C8E8]" data-testid="reserve-fund-section">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="h-4 w-4 text-[#5C2D91]" />
+                      <h3 className="font-medium text-[#1C1C1A] font-['Outfit']">Claims Reserve Fund</h3>
+                    </div>
+                    {reserveFund.in_deficit && (
+                      <Badge className="bg-[#C24A3B] text-white border-0 text-[10px]" data-testid="deficit-alert-badge">
+                        <AlertTriangle className="h-3 w-3 mr-1" />Deficit — Stop-Loss Review
+                      </Badge>
+                    )}
+                    {!reserveFund.in_deficit && (
+                      <Badge className="bg-[#4B6E4E] text-white border-0 text-[10px]" data-testid="reserve-healthy-badge">Healthy</Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Monthly Deposit</p>
+                      <p className="font-semibold font-['JetBrains_Mono']" data-testid="reserve-monthly">{fmt(reserveFund.claims_fund_monthly)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Total Deposited</p>
+                      <p className="font-semibold font-['JetBrains_Mono']" data-testid="reserve-deposited">{fmt(reserveFund.total_deposited)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Claims Paid</p>
+                      <p className="font-semibold font-['JetBrains_Mono'] text-[#C24A3B]" data-testid="reserve-claims-paid">{fmt(reserveFund.total_claims_paid)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[#8A8A85] text-xs">Balance</p>
+                      <p className={`font-semibold font-['JetBrains_Mono'] ${reserveFund.balance >= 0 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}`} data-testid="reserve-balance">{fmt(reserveFund.balance)}</p>
+                    </div>
+                  </div>
+                  {/* Utilization bar */}
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-[#8A8A85] mb-1">
+                      <span>Reserve Utilization</span>
+                      <span>{reserveFund.total_deposited > 0 ? Math.round((reserveFund.total_claims_paid / reserveFund.total_deposited) * 100) : 0}%</span>
+                    </div>
+                    <div className="w-full h-3 bg-[#E2E2DF] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          reserveFund.total_deposited > 0 && (reserveFund.total_claims_paid / reserveFund.total_deposited) > 0.9 ? 'bg-[#C24A3B]' :
+                          reserveFund.total_deposited > 0 && (reserveFund.total_claims_paid / reserveFund.total_deposited) > 0.7 ? 'bg-[#C9862B]' :
+                          'bg-[#5C2D91]'
+                        }`}
+                        style={{ width: `${Math.min(100, reserveFund.total_deposited > 0 ? (reserveFund.total_claims_paid / reserveFund.total_deposited) * 100 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                  {/* Monthly breakdown */}
+                  {reserveFund.monthly_breakdown?.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-[#D8C8E8]">
+                      <p className="text-[10px] text-[#8A8A85] uppercase mb-2">Monthly Breakdown</p>
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {reserveFund.monthly_breakdown.map(m => (
+                          <div key={m.month} className="bg-white rounded-lg p-2 border border-[#E2E2DF] text-center">
+                            <p className="text-[9px] text-[#8A8A85] font-medium">{m.month}</p>
+                            <p className="text-[10px] font-['JetBrains_Mono'] font-semibold text-[#5C2D91]">{fmt(m.deposited)}</p>
+                            <p className="text-[10px] font-['JetBrains_Mono'] text-[#C24A3B]">-{fmt(m.claims_paid)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {reserveFund.needs_stop_loss_review && (
+                    <div className="mt-3 bg-[#FBEAE7] rounded-lg p-3 flex items-center gap-2 text-xs text-[#C24A3B]" data-testid="stop-loss-review-alert">
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                      Claims have exceeded the funded reserve. This group is flagged for Aggregate Stop-Loss review.
+                    </div>
+                  )}
                 </div>
               )}
 

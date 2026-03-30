@@ -25,6 +25,7 @@ import {
   Layers,
   Target,
   FileUp,
+  CreditCard,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -43,6 +44,7 @@ const sidebarCategories = [
     icon: Activity,
     items: [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Check Runs', href: '/check-runs', icon: CreditCard },
       { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
       { name: 'Reports', href: '/reports', icon: BarChart3 },
       { name: 'EDI Management', href: '/edi', icon: FileUp },

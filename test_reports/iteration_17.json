@@ -1,0 +1,142 @@
+{
+  "summary": "Comprehensive testing of ASO Check Run Module, Level Funded Claims Bucket, Toggleable Funding Types, and Funding Health Dashboard features. All backend APIs working correctly (28/30 tests passed, 2 skipped). Frontend fully functional with all new features verified.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "✅ Backend: GET /api/check-runs/groups — Returns list of ASO groups (16 groups)",
+    "✅ Backend: GET /api/check-runs/groups — Only returns groups with funding_type=aso",
+    "✅ Backend: GET /api/check-runs/pending — Aggregates approved claims per ASO group",
+    "✅ Backend: GET /api/check-runs/pending?group_id=X — Filters by group_id",
+    "✅ Backend: POST /api/check-runs/generate-funding-request — Returns 404 for invalid group",
+    "✅ Backend: GET /api/check-runs — Lists all check runs",
+    "✅ Backend: GET /api/check-runs?group_id=X — Filters by group_id",
+    "✅ Backend: GET /api/check-runs?status=X — Filters by status",
+    "✅ Backend: GET /api/check-runs/{run_id} — Returns check run detail with claims list",
+    "✅ Backend: GET /api/check-runs/{run_id} — Returns 404 for non-existent run",
+    "✅ Backend: POST /api/groups with funding_type=aso — Creates ASO group",
+    "✅ Backend: POST /api/groups with funding_type=level_funded — Creates Level Funded group with claims_fund_monthly",
+    "✅ Backend: POST /api/groups with funding_type=fully_insured — Creates Fully Insured group",
+    "✅ Backend: GET /api/groups/{id}/reserve-fund — Returns reserve fund status for level-funded group",
+    "✅ Backend: GET /api/groups/{id}/reserve-fund — Returns 400 for ASO group",
+    "✅ Backend: GET /api/groups/{id}/reserve-fund — Includes monthly_breakdown",
+    "✅ Backend: GET /api/dashboard/funding-health — Returns funding health summary",
+    "✅ Backend: GET /api/dashboard/funding-health — Includes deficit_groups in level_funded section",
+    "✅ Backend: GET /api/groups — Includes funding_type in response",
+    "✅ Backend: GET /api/groups/{id} — Includes funding_type in detail response",
+    "✅ Backend: GET /api/groups/{id} — Includes claims_fund_monthly for level-funded groups",
+    "✅ Backend: POST /api/check-runs/{run_id}/confirm-funding — Returns 404 for non-existent run",
+    "✅ Backend: POST /api/check-runs/{run_id}/execute — Returns 404 for non-existent run",
+    "✅ Backend: POST /api/check-runs/{run_id}/confirm-funding — Returns 400 for wrong status",
+    "✅ Backend: Regression — Dashboard metrics endpoint working",
+    "✅ Backend: Regression — Claims list endpoint working",
+    "✅ Backend: Regression — Members list endpoint working",
+    "✅ Backend: Regression — Plans list endpoint working",
+    "✅ Frontend: /check-runs page renders with all metrics (ASO Groups: 16, Claims Pending: 0, Total Payable: $0, Check Runs: 1)",
+    "✅ Frontend: /check-runs — Group filter select present",
+    "✅ Frontend: /check-runs — Refresh button present",
+    "✅ Frontend: /check-runs — Pending Funding Requests section present",
+    "✅ Frontend: /check-runs — Check Run History table with executed run (Acme Manufacturing, 7 claims, $820, ACH batch)",
+    "✅ Frontend: /groups — Funding column in table with badges (ASO, Level Funded, Fully Insured)",
+    "✅ Frontend: /groups — Create Group wizard has Funding Type dropdown in Group Info tab",
+    "✅ Frontend: /groups — Monthly Claims Fund field appears in Financials tab when funding_type=level_funded",
+    "✅ Frontend: /groups — Level Funded group detail shows Claims Reserve Fund tracker",
+    "✅ Frontend: /groups — Reserve Fund shows Monthly Deposit ($12,000), Total Deposited ($120,000), Balance ($120,000)",
+    "✅ Frontend: /groups — Reserve Fund shows utilization bar and monthly breakdown",
+    "✅ Frontend: /groups — Reserve Fund shows 'Healthy' badge (not in deficit)",
+    "✅ Frontend: /dashboard — Funding Health widget visible with ASO, Level Funded, Fully Insured sections",
+    "✅ Frontend: /dashboard — ASO section shows Pending Funding ($0) and Total Paid ($820)",
+    "✅ Frontend: /dashboard — Level Funded section shows Expected Fund ($345,000), Actual Claims ($0), Surplus ($345,000)",
+    "✅ Frontend: Regression — Settings page loads correctly",
+    "✅ Frontend: Regression — EDI Management page loads correctly",
+    "✅ Frontend: Regression — Reports page loads correctly"
+  ],
+
+  "skipped_tests": [
+    "⏭️ Backend: POST /api/check-runs/generate-funding-request — Skipped (no pending claims for Acme)",
+    "⏭️ Backend: POST /api/check-runs/{run_id}/execute wrong status — Skipped (no pending_funding runs)"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_check_runs_funding.py",
+    "/app/test_reports/pytest/pytest_check_runs.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [],
+
+  "updated_files": [
+    "/app/backend/tests/test_check_runs_funding.py"
+  ],
+
+  "success_rate": {
+    "backend": "100% (28/28 passed, 2 skipped)",
+    "frontend": "100% (all features working)"
+  },
+
+  "test_credentials": {
+    "primary": "demo@fletchflow.com / Demo123!",
+    "role": "admin"
+  },
+
+  "seed_data_creation": "Test groups created during backend testing (TEST_ASO_Group_*, TEST_LF_Group_*, TEST_FI_Group_*). One check run already executed for Acme Manufacturing (7 claims, $820, ACH batch generated).",
+
+  "retest_needed": false,
+
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "ASO Check Run Module, Level Funded Claims Bucket, Toggleable Funding Types, and Funding Health Dashboard fully tested. Key features verified: 1) Check Run endpoints (groups, pending, generate-funding-request, confirm-funding, execute, list, get) all working. 2) Groups support funding_type field (aso, level_funded, fully_insured) with claims_fund_monthly for level_funded. 3) Reserve fund endpoint calculates balance from months_active * claims_fund_monthly - claims_paid. 4) Dashboard funding-health endpoint aggregates ASO pending/paid and LF expected/actual/surplus. 5) Frontend Check Run Manager at /check-runs with metrics, pending requests, and history table. 6) Frontend Groups page shows Funding column with badges, Create wizard has Funding Type dropdown, Level Funded detail shows Claims Reserve Fund tracker with utilization bar and monthly breakdown. 7) Dashboard Funding Health widget shows ASO, Level Funded, and Fully Insured sections. Existing ASO group: Acme Manufacturing (id: 98a51eee-6fd7-4259-9b0d-ae3864ab8a5b). Existing Level Funded group: Beta LLC (id: f4881478-6450-4d77-ac18-340385dfecbf, claims_fund_monthly: $12,000).",
+
+  "features_verified": {
+    "check_run_endpoints": {
+      "GET /api/check-runs/groups": "Returns ASO groups only",
+      "GET /api/check-runs/pending": "Aggregates approved claims by ASO group with member breakdown",
+      "POST /api/check-runs/generate-funding-request": "Creates funding request, marks claims with check_run_id",
+      "POST /api/check-runs/{run_id}/confirm-funding": "Moves run to 'funded' status",
+      "POST /api/check-runs/{run_id}/execute": "Generates ACH batch, moves claims to 'paid'",
+      "GET /api/check-runs": "Lists all check runs with filtering",
+      "GET /api/check-runs/{run_id}": "Returns check run detail with claims list"
+    },
+    "groups_funding_type": {
+      "POST /api/groups": "Supports funding_type (aso, level_funded, fully_insured) and claims_fund_monthly",
+      "GET /api/groups": "Returns funding_type in list",
+      "GET /api/groups/{id}": "Returns funding_type and claims_fund_monthly in detail"
+    },
+    "reserve_fund": {
+      "GET /api/groups/{id}/reserve-fund": "Returns reserve fund status for level-funded groups",
+      "response_fields": ["claims_fund_monthly", "months_active", "total_deposited", "total_claims_paid", "balance", "in_deficit", "needs_stop_loss_review", "monthly_breakdown"]
+    },
+    "funding_health": {
+      "GET /api/dashboard/funding-health": "Returns funding health summary",
+      "aso_fields": ["group_count", "pending_funding", "total_paid"],
+      "level_funded_fields": ["group_count", "expected_fund", "actual_claims", "surplus", "deficit_groups"],
+      "fully_insured_fields": ["group_count"]
+    },
+    "frontend_check_runs": {
+      "route": "/check-runs",
+      "data_testids": ["check-run-manager", "metric-aso-groups", "metric-pending-claims", "metric-pending-amount", "metric-total-runs", "group-filter-select", "refresh-check-runs", "pending-group-{id}", "gen-funding-{id}", "run-row-{id}", "confirm-funding-{id}", "execute-run-{id}"]
+    },
+    "frontend_groups_funding": {
+      "route": "/groups",
+      "table_column": "Funding (with ASO/Level Funded/Fully Insured badges)",
+      "create_wizard": "Funding Type dropdown in Group Info tab, Monthly Claims Fund in Financials tab (level_funded only)",
+      "detail_reserve_fund": "Claims Reserve Fund section for level_funded groups with balance, utilization bar, monthly breakdown, deficit/healthy badge",
+      "data_testids": ["group-funding-type", "group-claims-fund", "reserve-fund-section", "reserve-balance", "reserve-monthly", "reserve-deposited", "reserve-claims-paid", "deficit-alert-badge", "reserve-healthy-badge", "funding-type-badge"]
+    },
+    "frontend_dashboard_funding_health": {
+      "route": "/dashboard",
+      "widget": "Funding Health widget with ASO, Level Funded, Fully Insured sections",
+      "data_testids": ["funding-health-widget", "funding-aso", "aso-pending", "aso-paid", "funding-level-funded", "lf-expected", "lf-actual", "lf-surplus", "funding-fully-insured"]
+    }
+  }
+}

@@ -104,6 +104,7 @@ export const dashboardAPI = {
   claimsByStatus: () => api.get('/dashboard/claims-by-status'),
   claimsByType: () => api.get('/dashboard/claims-by-type'),
   recentActivity: (limit = 10) => api.get('/dashboard/recent-activity', { params: { limit } }),
+  fundingHealth: () => api.get('/dashboard/funding-health'),
 };
 
 export const reportsAPI = {
@@ -244,4 +245,20 @@ export const hourBankAPI = {
   bridgePayment: (memberId) => api.post(`/hour-bank/${memberId}/bridge-payment`),
   notifications: (unreadOnly = true) => api.get('/hour-bank/notifications/list', { params: { unread_only: unreadOnly } }),
   markRead: (notifId) => api.put(`/hour-bank/notifications/${notifId}/read`),
+};
+
+export const checkRunAPI = {
+  getAsoGroups: () => api.get('/check-runs/groups'),
+  getPending: (groupId) => api.get('/check-runs/pending', { params: groupId ? { group_id: groupId } : {} }),
+  generateFundingRequest: (groupId) => api.post('/check-runs/generate-funding-request', null, { params: { group_id: groupId } }),
+  confirmFunding: (runId) => api.post(`/check-runs/${runId}/confirm-funding`),
+  execute: (runId) => api.post(`/check-runs/${runId}/execute`),
+  list: (groupId, status) => api.get('/check-runs', { params: { ...(groupId ? { group_id: groupId } : {}), ...(status ? { status } : {}) } }),
+  get: (runId) => api.get(`/check-runs/${runId}`),
+};
+
+export const groupsAPI = {
+  getReserveFund: (groupId) => api.get(`/groups/${groupId}/reserve-fund`),
+  manualDeposit: (groupId, amount, description) =>
+    api.post(`/groups/${groupId}/reserve-deposit`, null, { params: { amount, description } }),
 };

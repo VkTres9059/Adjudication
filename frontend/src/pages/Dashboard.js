@@ -14,8 +14,12 @@ import {
   Activity,
   ArrowRight,
   RefreshCw,
+  Building2,
+  CreditCard,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import {
   PieChart,
   Pie,
@@ -46,6 +50,7 @@ export default function Dashboard() {
   const [claimsByType, setClaimsByType] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [examinerPerf, setExaminerPerf] = useState([]);
+  const [fundingHealth, setFundingHealth] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboardData = async () => {
@@ -66,6 +71,11 @@ export default function Dashboard() {
       try {
         const perfRes = await examinerAPI.performance();
         setExaminerPerf(perfRes.data);
+      } catch {}
+      // Fetch funding health
+      try {
+        const fhRes = await dashboardAPI.fundingHealth();
+        setFundingHealth(fhRes.data);
       } catch {}
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -301,6 +311,90 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Funding Health Widget */}
+      {fundingHealth && (fundingHealth.aso.group_count > 0 || fundingHealth.level_funded.group_count > 0) && (
+        <div className="container-card" data-testid="funding-health-widget">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#F3EBF9] rounded-lg flex items-center justify-center">
+                <Wallet className="h-5 w-5 text-[#5C2D91]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Funding Health</h3>
+                <p className="text-[10px] text-[#8A8A85]">Real-time financial overview by funding model</p>
+              </div>
+            </div>
+            <Link to="/check-runs">
+              <Button variant="outline" size="sm" className="text-xs">
+                <CreditCard className="h-3 w-3 mr-1" />Check Runs
+              </Button>
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* ASO */}
+            {fundingHealth.aso.group_count > 0 && (
+              <div className="bg-[#EFF4FB] rounded-xl p-4 border border-[#C8D8EE]" data-testid="funding-aso">
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge className="bg-[#4A6FA5] text-white border-0 text-[10px]">ASO</Badge>
+                  <span className="text-xs text-[#8A8A85]">{fundingHealth.aso.group_count} groups</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#64645F]">Pending Funding</span>
+                    <span className="font-['JetBrains_Mono'] font-semibold text-[#C9862B]" data-testid="aso-pending">{formatCurrency(fundingHealth.aso.pending_funding)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#64645F]">Total Paid</span>
+                    <span className="font-['JetBrains_Mono'] font-semibold text-[#4B6E4E]" data-testid="aso-paid">{formatCurrency(fundingHealth.aso.total_paid)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Level Funded */}
+            {fundingHealth.level_funded.group_count > 0 && (
+              <div className="bg-[#F9F5FF] rounded-xl p-4 border border-[#D8C8E8]" data-testid="funding-level-funded">
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge className="bg-[#5C2D91] text-white border-0 text-[10px]">Level Funded</Badge>
+                  <span className="text-xs text-[#8A8A85]">{fundingHealth.level_funded.group_count} groups</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#64645F]">Expected Fund</span>
+                    <span className="font-['JetBrains_Mono'] font-semibold" data-testid="lf-expected">{formatCurrency(fundingHealth.level_funded.expected_fund)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[#64645F]">Actual Claims</span>
+                    <span className="font-['JetBrains_Mono'] font-semibold text-[#C24A3B]" data-testid="lf-actual">{formatCurrency(fundingHealth.level_funded.actual_claims)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm border-t border-[#D8C8E8] pt-2">
+                    <span className="text-[#64645F] font-medium">Surplus</span>
+                    <span className={`font-['JetBrains_Mono'] font-semibold ${fundingHealth.level_funded.surplus >= 0 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}`} data-testid="lf-surplus">{formatCurrency(fundingHealth.level_funded.surplus)}</span>
+                  </div>
+                </div>
+                {fundingHealth.level_funded.deficit_groups?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[#D8C8E8]">
+                    <div className="flex items-center gap-1 text-xs text-[#C24A3B] mb-1"><AlertTriangle className="h-3 w-3" />Deficit Groups:</div>
+                    {fundingHealth.level_funded.deficit_groups.map(dg => (
+                      <Badge key={dg.group_id} className="bg-[#FBEAE7] text-[#C24A3B] border-0 text-[10px] mr-1">{dg.group_name}: {formatCurrency(dg.deficit)}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Fully Insured */}
+            {fundingHealth.fully_insured.group_count > 0 && (
+              <div className="bg-[#F0F7F1] rounded-xl p-4 border border-[#D4E5D6]" data-testid="funding-fully-insured">
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge className="bg-[#1A3636] text-white border-0 text-[10px]">Fully Insured</Badge>
+                  <span className="text-xs text-[#8A8A85]">{fundingHealth.fully_insured.group_count} groups</span>
+                </div>
+                <p className="text-sm text-[#64645F]">Carrier-managed risk. No employer-level reserve tracking required.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

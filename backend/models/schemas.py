@@ -101,6 +101,8 @@ class GroupCreate(BaseModel):
     employee_count: int = 0
     total_premium: float = 0.0
     mgu_fees: float = 0.0
+    funding_type: str = "aso"  # aso, level_funded, fully_insured
+    claims_fund_monthly: float = 0.0  # Monthly claims fund deposit for level_funded
     stop_loss: Optional[StopLossConfig] = None
     sftp_config: Optional[SFTPConfig] = None
     plan_ids: List[str] = []

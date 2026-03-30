@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+from dateutil.relativedelta import relativedelta
 import uuid
 
 from core.database import db
@@ -165,6 +166,111 @@ async def update_sftp_config(group_id: str, sftp: SFTPConfig, user: dict = Depen
 
     await db.groups.update_one({"id": group_id}, {"$set": {"sftp_config": sftp.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"message": "SFTP config updated", "sftp_config": sftp.model_dump()}
+
+
+# ── Level Funded Claims Reserve ──
+
+@router.get("/{group_id}/reserve-fund")
+async def get_reserve_fund(group_id: str, user: dict = Depends(get_current_user)):
+    """Get the claims reserve fund status for a level-funded group."""
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group.get("funding_type") != "level_funded":
+        raise HTTPException(400, "Reserve fund only applies to level-funded groups")
+
+    claims_fund_monthly = float(group.get("claims_fund_monthly", 0))
+    effective = group.get("effective_date", "")
+
+    # Calculate months since effective
+    try:
+        eff_date = datetime.fromisoformat(effective)
+    except (ValueError, TypeError):
+        eff_date = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    months_active = max(1, (now.year - eff_date.year) * 12 + (now.month - eff_date.month) + 1)
+    total_deposited = claims_fund_monthly * months_active
+
+    # Get total claims paid for this group
+    members = await db.members.find({"group_id": group_id}, {"member_id": 1, "_id": 0}).to_list(100000)
+    mids = [m["member_id"] for m in members]
+
+    pipeline = [
+        {"$match": {"member_id": {"$in": mids}, "status": {"$in": ["approved", "paid"]}}},
+        {"$group": {"_id": None, "total_paid": {"$sum": "$total_paid"}, "count": {"$sum": 1}}},
+    ]
+    agg = await db.claims.aggregate(pipeline).to_list(1)
+    total_claims_paid = round(agg[0]["total_paid"], 2) if agg else 0
+    claim_count = agg[0]["count"] if agg else 0
+
+    balance = round(total_deposited - total_claims_paid, 2)
+    in_deficit = balance < 0
+
+    # Monthly breakdown (last 6 months)
+    monthly = []
+    for i in range(min(6, months_active)):
+        month_dt = now.replace(day=1) - relativedelta(months=i)
+        month_start = month_dt.strftime("%Y-%m-01")
+        month_end = (month_dt.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m-01")
+        m_pipeline = [
+            {"$match": {"member_id": {"$in": mids}, "status": {"$in": ["approved", "paid"]},
+                         "adjudicated_at": {"$gte": month_start, "$lt": month_end}}},
+            {"$group": {"_id": None, "paid": {"$sum": "$total_paid"}, "count": {"$sum": 1}}},
+        ]
+        m_agg = await db.claims.aggregate(m_pipeline).to_list(1)
+        monthly.append({
+            "month": month_dt.strftime("%Y-%m"),
+            "deposited": claims_fund_monthly,
+            "claims_paid": round(m_agg[0]["paid"], 2) if m_agg else 0,
+            "claim_count": m_agg[0]["count"] if m_agg else 0,
+        })
+    monthly.reverse()
+
+    # Flag for stop-loss review if in deficit
+    stop_loss = group.get("stop_loss") or {}
+    aggregate_att = stop_loss.get("aggregate_attachment_point", 0)
+    needs_stop_loss_review = in_deficit or (aggregate_att > 0 and total_claims_paid > aggregate_att)
+
+    return {
+        "group_id": group_id,
+        "group_name": group.get("name", ""),
+        "funding_type": "level_funded",
+        "claims_fund_monthly": claims_fund_monthly,
+        "months_active": months_active,
+        "total_deposited": round(total_deposited, 2),
+        "total_claims_paid": total_claims_paid,
+        "claim_count": claim_count,
+        "balance": balance,
+        "in_deficit": in_deficit,
+        "needs_stop_loss_review": needs_stop_loss_review,
+        "monthly_breakdown": monthly,
+    }
+
+
+@router.post("/{group_id}/reserve-deposit")
+async def manual_reserve_deposit(
+    group_id: str,
+    amount: float = Query(..., gt=0),
+    description: str = Query("Manual deposit"),
+    user: dict = Depends(require_roles([UserRole.ADMIN]))
+):
+    """Record a manual deposit into the claims reserve fund."""
+    group = await db.groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(404, "Group not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.reserve_ledger.insert_one({
+        "id": str(uuid.uuid4()),
+        "group_id": group_id,
+        "type": "deposit",
+        "amount": amount,
+        "description": description,
+        "created_by": user["id"],
+        "created_at": now,
+    })
+    return {"status": "deposited", "amount": amount}
+
 
 
 @router.get("/{group_id}/pulse")
