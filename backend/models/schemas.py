@@ -44,6 +44,37 @@ class PlanBenefit(BaseModel):
     code_range: Optional[str] = None
 
 
+class BenefitModule(BaseModel):
+    module_id: str  # preventive, physician, inpatient, emergency, pharmacy
+    enabled: bool = True
+    copay: float = 0
+    deductible: float = 0
+    coinsurance: float = 20  # percentage, e.g. 20 = 20%
+    deductible_applies: bool = True
+    prior_auth_required: bool = False
+    visit_limit: Optional[int] = None
+    notes: str = ""
+
+
+class NetworkTier(BaseModel):
+    tier_id: str  # tier1, tier2, tier3
+    name: str = ""
+    copay_modifier: float = 1.0  # multiplier applied to base copay
+    coinsurance: float = 20  # percentage for this tier
+    deductible: float = 0
+    oop_max: float = 0
+    description: str = ""
+
+
+class RiskManagement(BaseModel):
+    specific_attachment_point: float = 0
+    aggregate_attachment_point: float = 0
+    auto_flag_threshold_pct: float = 50  # Flag claims > X% of specific limit
+    stop_loss_carrier: str = ""
+    contract_period: str = "12_month"
+    notes: str = ""
+
+
 class PlanCreate(BaseModel):
     name: str
     plan_type: ClaimType
@@ -56,7 +87,11 @@ class PlanCreate(BaseModel):
     oop_max_family: float = 10000
     network_type: str = "PPO"
     reimbursement_method: str = "fee_schedule"
+    rbp_medicare_pct: float = 150  # % of Medicare for RBP
     benefits: List[PlanBenefit] = []
+    benefit_modules: List[BenefitModule] = []
+    network_tiers: List[NetworkTier] = []
+    risk_management: Optional[RiskManagement] = None
     tier_type: str = "employee_only"
     exclusions: List[str] = []
     preventive_design: str = "aca_strict"
@@ -146,7 +181,11 @@ class PlanResponse(BaseModel):
     oop_max_family: float
     network_type: str
     reimbursement_method: str
+    rbp_medicare_pct: float = 150
     benefits: List[Dict]
+    benefit_modules: List[Dict] = []
+    network_tiers: List[Dict] = []
+    risk_management: Optional[Dict] = None
     tier_type: str
     exclusions: List[str]
     status: str

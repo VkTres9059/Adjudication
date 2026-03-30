@@ -49,6 +49,7 @@ export const plansAPI = {
   get: (id) => api.get(`/plans/${id}`),
   create: (data) => api.post('/plans', data),
   update: (id, data) => api.put(`/plans/${id}`, data),
+  sbcPdfUrl: (id) => `${API_URL}/api/plans/${id}/sbc-pdf`,
 };
 
 export const membersAPI = {

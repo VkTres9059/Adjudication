@@ -387,7 +387,7 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         upsert=True
     )
 
-    return {
+    result = {
         "status": ClaimStatus.APPROVED.value if total_paid > 0 else ClaimStatus.DENIED.value,
         "total_allowed": round(total_allowed, 2),
         "total_paid": round(total_paid, 2),
@@ -395,3 +395,18 @@ async def adjudicate_claim(claim: dict, plan: dict, member: dict, locality_code:
         "service_lines": processed_lines,
         "adjudication_notes": adjudication_notes
     }
+
+    # Stop-Loss auto-flagging: if claim exceeds threshold % of Specific Attachment Point
+    risk = plan.get("risk_management")
+    if risk and total_paid > 0:
+        specific_limit = risk.get("specific_attachment_point", 0)
+        threshold_pct = risk.get("auto_flag_threshold_pct", 50)
+        if specific_limit > 0 and total_paid > (specific_limit * threshold_pct / 100):
+            result["stop_loss_flag"] = True
+            result["adjudication_notes"].append(
+                f"STOP-LOSS FLAG: Claim paid ${total_paid:,.2f} exceeds "
+                f"{threshold_pct}% of Specific Attachment Point (${specific_limit:,.2f}). "
+                f"Auto-routed to Examiner Queue for review."
+            )
+
+    return result

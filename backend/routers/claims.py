@@ -89,6 +89,10 @@ async def adjudicate_claim_action(
         result = await adjudicate_claim(claim, plan, member)
         update_doc.update(result)
         update_doc["status"] = ClaimStatus.APPROVED.value
+        # Stop-loss auto-flag: route to examiner queue
+        if result.get("stop_loss_flag"):
+            update_doc["stop_loss_flag"] = True
+            update_doc["examiner_flag"] = "stop_loss_review"
 
     elif action.action == "deny":
         update_doc["status"] = ClaimStatus.DENIED.value
