@@ -315,6 +315,20 @@ class ClaimResponse(BaseModel):
     assigned_to_name: Optional[str] = None
     assigned_at: Optional[str] = None
     eligibility_source: Optional[str] = None
+    # Adjudication engine fields
+    data_tier: Optional[int] = None
+    tier_label: Optional[str] = None
+    plan_version: Optional[int] = None
+    payment_ready: Optional[bool] = None
+    network_status: Optional[str] = None
+    cob_applied: Optional[bool] = None
+    cob_position: Optional[str] = None
+    cob_adjustment: Optional[float] = None
+    cob_info: Optional[Dict] = None
+    stop_loss_flag: Optional[bool] = None
+    precert_penalty_applied: Optional[bool] = None
+    idr_case_number: Optional[str] = None
+    idr_status: Optional[str] = None
 
 
 class DuplicateAlert(BaseModel):
