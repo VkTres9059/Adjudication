@@ -67,6 +67,27 @@ async def examiner_quick_action(claim_id: str, action: str = Query(...), notes: 
             "adjudication_notes": adj_notes,
             "adjudicated_at": now,
         }})
+        # Auto-generate auth record for the authorization feed
+        svc_lines = claim.get("service_lines", [])
+        cpt_codes = [sl.get("cpt_code", "") for sl in svc_lines if sl.get("cpt_code")]
+        total_units = sum(sl.get("units", 1) for sl in svc_lines)
+        await db.auth_feed_records.insert_one({
+            "id": str(uuid.uuid4()),
+            "type": "auth_release",
+            "auth_id": f"AUTH-{claim.get('claim_number', claim_id)[:20]}",
+            "claim_id": claim_id,
+            "claim_number": claim.get("claim_number", ""),
+            "member_id": claim.get("member_id", ""),
+            "provider_npi": claim.get("provider_npi", ""),
+            "provider_name": claim.get("provider_name", ""),
+            "cpt_codes": cpt_codes,
+            "units_approved": total_units,
+            "service_date_from": claim.get("service_date_from", ""),
+            "service_date_to": claim.get("service_date_to", ""),
+            "approved_by": user.get("name", user["email"]),
+            "approved_by_id": user["id"],
+            "created_at": now,
+        })
     elif action == "deny":
         adj_notes.append(f"QUICK DENIED by {user.get('name', user['email'])} from Examiner Queue." + (f" Notes: {notes}" if notes else ""))
         await db.claims.update_one({"id": claim_id}, {"$set": {

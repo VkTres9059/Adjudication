@@ -14,6 +14,8 @@ import {
   Lock,
   Layers,
   DollarSign,
+  Send,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -60,10 +62,18 @@ export default function Settings() {
   });
   const [bridgeSaving, setBridgeSaving] = useState(false);
 
+  // Vendor state
+  const [vendors, setVendors] = useState([]);
+  const [vendorForm, setVendorForm] = useState({
+    name: '', vendor_type: 'medical_tpa', feed_types: ['834'], format: 'hipaa_5010', sftp_host: '', sftp_path: '', enabled: true,
+  });
+  const [vendorSaving, setVendorSaving] = useState(false);
+
   useEffect(() => {
     fetchUsers();
     fetchGatewayConfig();
     fetchBridgeConfig();
+    fetchVendors();
   }, []);
 
   const fetchUsers = async () => {
@@ -119,6 +129,42 @@ export default function Settings() {
     finally { setBridgeSaving(false); }
   };
 
+  const fetchVendors = async () => {
+    try {
+      const res = await settingsAPI.getVendors();
+      setVendors(res.data);
+    } catch { /* ok */ }
+  };
+
+  const createVendor = async () => {
+    if (!vendorForm.name) { toast.error('Vendor name is required'); return; }
+    setVendorSaving(true);
+    try {
+      await settingsAPI.createVendor(vendorForm);
+      toast.success(`Vendor "${vendorForm.name}" created`);
+      setVendorForm({ name: '', vendor_type: 'medical_tpa', feed_types: ['834'], format: 'hipaa_5010', sftp_host: '', sftp_path: '', enabled: true });
+      fetchVendors();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to create vendor'); }
+    finally { setVendorSaving(false); }
+  };
+
+  const deleteVendor = async (id) => {
+    try {
+      await settingsAPI.deleteVendor(id);
+      toast.success('Vendor deleted');
+      fetchVendors();
+    } catch { toast.error('Failed to delete vendor'); }
+  };
+
+  const toggleVendorFormat = async (vendor) => {
+    const newFormat = vendor.format === 'hipaa_5010' ? 'csv' : 'hipaa_5010';
+    try {
+      await settingsAPI.updateVendor(vendor.id, { ...vendor, format: newFormat });
+      toast.success(`${vendor.name} switched to ${newFormat === 'hipaa_5010' ? 'HIPAA 5010' : 'CSV'}`);
+      fetchVendors();
+    } catch { toast.error('Failed to update vendor'); }
+  };
+
   const fmt = (v) => `$${Number(v || 0).toLocaleString()}`;
 
   return (
@@ -132,6 +178,7 @@ export default function Settings() {
         <TabsList className="bg-[#F0F0EA] border border-[#E2E2DF]">
           <TabsTrigger value="gateway" className="data-[state=active]:bg-white text-sm" data-testid="tab-gateway"><Layers className="h-3.5 w-3.5 mr-1.5" />Adjudication Gateway</TabsTrigger>
           <TabsTrigger value="bridge" className="data-[state=active]:bg-white text-sm" data-testid="tab-bridge"><DollarSign className="h-3.5 w-3.5 mr-1.5" />Bridge Payments</TabsTrigger>
+          <TabsTrigger value="vendors" className="data-[state=active]:bg-white text-sm" data-testid="tab-vendors"><Send className="h-3.5 w-3.5 mr-1.5" />Feed Vendors</TabsTrigger>
           <TabsTrigger value="users" className="data-[state=active]:bg-white text-sm" data-testid="tab-users"><Users className="h-3.5 w-3.5 mr-1.5" />Users</TabsTrigger>
           <TabsTrigger value="system" className="data-[state=active]:bg-white text-sm" data-testid="tab-system"><Cog className="h-3.5 w-3.5 mr-1.5" />System</TabsTrigger>
         </TabsList>
@@ -360,6 +407,100 @@ export default function Settings() {
                 <p className="text-[#64645F]">On payment, member status flips to Active, held claims are released for processing, and the eligibility source is stamped "Bridge Payment".</p>
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        {/* VENDORS TAB */}
+        <TabsContent value="vendors" className="mt-6 space-y-6">
+          <div className="container-card">
+            <div className="mb-6">
+              <h2 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Feed Vendor Configuration</h2>
+              <p className="text-xs text-[#8A8A85] mt-1">Map outbound EDI feeds to specific vendors. Toggle between HIPAA 5010 and CSV per vendor.</p>
+            </div>
+
+            {/* Create Vendor Form */}
+            <div className="bg-[#F7F7F4] rounded-xl p-4 mb-5 border border-[#E2E2DF]" data-testid="vendor-form">
+              <p className="text-xs font-medium text-[#64645F] mb-3">Add New Vendor</p>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Vendor Name</Label>
+                  <Input value={vendorForm.name} onChange={(e) => setVendorForm({...vendorForm, name: e.target.value})} placeholder="e.g. Acme PBM" className="input-field h-8 text-xs" data-testid="vendor-name-input" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Type</Label>
+                  <Select value={vendorForm.vendor_type} onValueChange={(v) => setVendorForm({...vendorForm, vendor_type: v})}>
+                    <SelectTrigger className="input-field h-8 text-xs" data-testid="vendor-type-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="medical_tpa">Medical TPA</SelectItem>
+                      <SelectItem value="pbm">PBM</SelectItem>
+                      <SelectItem value="dental_tpa">Dental TPA</SelectItem>
+                      <SelectItem value="carrier">Carrier</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Feed Types</Label>
+                  <Select value={vendorForm.feed_types.join(',')} onValueChange={(v) => setVendorForm({...vendorForm, feed_types: v.split(',')})}>
+                    <SelectTrigger className="input-field h-8 text-xs" data-testid="vendor-feeds-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="834">834 Only</SelectItem>
+                      <SelectItem value="278">278 Only</SelectItem>
+                      <SelectItem value="834,278">834 + 278</SelectItem>
+                      <SelectItem value="834,278,835">All (834/278/835)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px]">Default Format</Label>
+                  <Select value={vendorForm.format} onValueChange={(v) => setVendorForm({...vendorForm, format: v})}>
+                    <SelectTrigger className="input-field h-8 text-xs" data-testid="vendor-format-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hipaa_5010">HIPAA 5010</SelectItem>
+                      <SelectItem value="csv">Custom CSV</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={createVendor} disabled={vendorSaving} size="sm" className="btn-primary h-8 text-xs" data-testid="create-vendor-btn">
+                  {vendorSaving ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}Add Vendor
+                </Button>
+              </div>
+            </div>
+
+            {/* Vendor List */}
+            {vendors.length === 0 ? (
+              <div className="bg-[#F7F7F4] rounded-lg p-6 text-center"><p className="text-sm text-[#8A8A85]">No vendors configured. Add one above.</p></div>
+            ) : (
+              <Table>
+                <TableHeader><TableRow className="border-[#E2E2DF]">
+                  <TableHead>Vendor Name</TableHead><TableHead>Type</TableHead><TableHead>Feed Types</TableHead><TableHead>Format</TableHead><TableHead>Status</TableHead><TableHead className="w-[80px]"></TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {vendors.map((v) => (
+                    <TableRow key={v.id} className="table-row h-[48px]" data-testid={`vendor-row-${v.id}`}>
+                      <TableCell className="text-sm font-medium">{v.name}</TableCell>
+                      <TableCell><Badge className="bg-[#F0F0EA] text-[#64645F] border-0 text-[10px] capitalize">{v.vendor_type?.replace(/_/g, ' ')}</Badge></TableCell>
+                      <TableCell className="text-xs">{v.feed_types?.join(', ')}</TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" onClick={() => toggleVendorFormat(v)} className="h-7 text-[10px] px-2" data-testid={`toggle-format-${v.id}`}>
+                          {v.format === 'hipaa_5010' ? (
+                            <><Shield className="h-3 w-3 mr-1 text-[#1A3636]" />HIPAA 5010</>
+                          ) : (
+                            <><FileText className="h-3 w-3 mr-1 text-[#C9862B]" />CSV</>
+                          )}
+                        </Button>
+                      </TableCell>
+                      <TableCell><Badge className={v.enabled ? 'bg-[#4B6E4E] text-white border-0 text-[9px]' : 'bg-[#8A8A85] text-white border-0 text-[9px]'}>{v.enabled ? 'Active' : 'Disabled'}</Badge></TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(v.id)} className="h-7 w-7 p-0 text-[#C24A3B]" data-testid={`delete-vendor-${v.id}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </div>
         </TabsContent>
 

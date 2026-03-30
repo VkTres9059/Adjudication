@@ -362,3 +362,270 @@ async def list_transactions(
         query["type"] = tx_type
     txns = await db.edi_transactions.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return txns
+
+
+# ── Transmission Log (outbound feeds) ──
+
+@router.get("/transmissions")
+async def list_transmissions(
+    limit: int = Query(50, ge=1, le=200),
+    user: dict = Depends(get_current_user)
+):
+    """List outbound feed transmission history."""
+    txns = await db.edi_transmissions.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return txns
+
+
+async def _log_transmission(feed_type, filename, vendor_name, vendor_id, record_count, status, user_id, details=None):
+    """Log an outbound feed transmission."""
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "feed_type": feed_type,
+        "filename": filename,
+        "vendor_name": vendor_name,
+        "vendor_id": vendor_id,
+        "record_count": record_count,
+        "status": status,
+        "details": details or {},
+        "transmitted_by": user_id,
+        "created_at": now,
+    }
+    await db.edi_transmissions.insert_one(doc)
+    return doc["id"]
+
+
+# ── Export 834 Enrollment Feed ──
+
+@router.post("/export-834")
+async def export_834_feed(
+    vendor_id: Optional[str] = Query(None),
+    format: str = Query("hipaa_5010", description="hipaa_5010 or csv"),
+    user: dict = Depends(require_roles([UserRole.ADMIN]))
+):
+    """Generate outbound 834 enrollment feed. Active members = Add (021), termed = Term (024)."""
+
+    vendor = None
+    vendor_name = "Manual Export"
+    if vendor_id:
+        vendor = await db.feed_vendors.find_one({"id": vendor_id}, {"_id": 0})
+        if vendor:
+            vendor_name = vendor.get("name", "Unknown")
+            format = vendor.get("format", format)
+
+    # Get all members with hour-bank eligible plans
+    plans = await db.plans.find({"eligibility_threshold": {"$gt": 0}}, {"_id": 0}).to_list(1000)
+    plan_map = {p["id"]: p for p in plans}
+    plan_ids = list(plan_map.keys())
+
+    # All members on these plans
+    all_members = await db.members.find(
+        {"plan_id": {"$in": plan_ids}} if plan_ids else {},
+        {"_id": 0}
+    ).to_list(100000)
+
+    # Also include members not on hour-bank plans (standard enrollment)
+    non_hb_members = await db.members.find(
+        {"plan_id": {"$nin": plan_ids}} if plan_ids else {},
+        {"_id": 0}
+    ).to_list(100000)
+
+    members = all_members + non_hb_members
+    now = datetime.now(timezone.utc)
+    isa_date = now.strftime("%y%m%d")
+    isa_time = now.strftime("%H%M")
+    gs_date = now.strftime("%Y%m%d")
+    control = str(uuid.uuid4().int)[:9].zfill(9)
+
+    records = []
+    adds = 0
+    terms = 0
+
+    for m in members:
+        plan = plan_map.get(m.get("plan_id"))
+        threshold = plan.get("eligibility_threshold", 0) if plan else 0
+
+        # Hour bank logic: check if member should be active
+        maint_code = "021"  # default: add
+        maint_label = "addition"
+        status = m.get("status", "active")
+
+        if threshold > 0:
+            bank = await db.hour_bank.find_one({"member_id": m["member_id"]}, {"_id": 0})
+            total = 0
+            if bank:
+                total = float(bank.get("current_balance", 0)) + float(bank.get("reserve_balance", 0))
+            if total < threshold or status == "termed_insufficient_hours":
+                maint_code = "024"
+                maint_label = "cancellation"
+                terms += 1
+            else:
+                adds += 1
+        elif status in ("terminated", "termed_insufficient_hours"):
+            maint_code = "024"
+            maint_label = "cancellation"
+            terms += 1
+        else:
+            adds += 1
+
+        records.append({**m, "_maint_code": maint_code, "_maint_label": maint_label})
+
+    filename = f"834_export_{gs_date}_{isa_time}.{'edi' if format == 'hipaa_5010' else 'csv'}"
+
+    if format == "csv":
+        lines = ["MemberID,FirstName,LastName,DOB,Gender,GroupID,PlanID,EffectiveDate,TermDate,Relationship,Status,MaintenanceCode,MaintenanceType"]
+        for r in records:
+            lines.append(
+                f"{r.get('member_id','')},{r.get('first_name','')},{r.get('last_name','')},{r.get('dob','')},"
+                f"{r.get('gender','')},{r.get('group_id','')},{r.get('plan_id','')},"
+                f"{r.get('effective_date','')},{r.get('termination_date','') or ''},"
+                f"{r.get('relationship','')},{r.get('status','')},{r['_maint_code']},{r['_maint_label']}"
+            )
+        content = "\n".join(lines)
+    else:
+        # HIPAA 5010 X12 834
+        segs = []
+        segs.append(f"ISA*00*          *00*          *ZZ*FLETCHFLOW     *ZZ*{vendor_name[:15]:<15s}*{isa_date}*{isa_time}*^*00501*{control}*0*P*:~")
+        segs.append(f"GS*BE*FLETCHFLOW*{vendor_name[:15]}*{gs_date}*{isa_time}*1*X*005010X220A1~")
+        segs.append("ST*834*0001~")
+        segs.append(f"BGN*00*{control}*{gs_date}~")
+        sc = 4
+
+        for r in records:
+            rel = "Y" if r.get("relationship") == "subscriber" else "N"
+            segs.append(f"INS*{rel}*18*{r['_maint_code']}*20*A****EMP~")
+            sc += 1
+            segs.append(f"REF*0F*{r.get('member_id', '')}~")
+            sc += 1
+            if r.get("group_id"):
+                segs.append(f"REF*1L*{r.get('group_id', '')}~")
+                sc += 1
+            segs.append(f"NM1*IL*1*{r.get('last_name','')}*{r.get('first_name','')}****MI*{r.get('member_id','')}~")
+            sc += 1
+            dob_raw = r.get("dob", "").replace("-", "")
+            gender = r.get("gender", "U")
+            segs.append(f"DMG*D8*{dob_raw}*{gender}~")
+            sc += 1
+            eff = r.get("effective_date", "").replace("-", "")
+            if eff:
+                segs.append(f"DTP*348*D8*{eff}~")
+                sc += 1
+            term = r.get("termination_date", "")
+            if term and r["_maint_code"] == "024":
+                segs.append(f"DTP*349*D8*{term.replace('-', '')}~")
+                sc += 1
+            segs.append(f"HD*{r['_maint_code']}**HLT**EMP~")
+            sc += 1
+
+        sc += 1
+        segs.append(f"SE*{sc}*0001~")
+        segs.append("GE*1*1~")
+        segs.append(f"IEA*1*{control}~")
+        content = "\n".join(segs)
+
+    await _log_transmission("834_export", filename, vendor_name, vendor_id or "", len(records), "success", user["id"], {
+        "adds": adds, "terms": terms, "format": format,
+    })
+
+    return {
+        "content": content,
+        "filename": filename,
+        "format": format,
+        "vendor_name": vendor_name,
+        "total_members": len(records),
+        "adds": adds,
+        "terms": terms,
+    }
+
+
+# ── Authorization (278) Feed ──
+
+@router.post("/export-auth-feed")
+async def export_auth_feed(
+    vendor_id: Optional[str] = Query(None),
+    format: str = Query("hipaa_5010", description="hipaa_5010 or csv"),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.ADJUDICATOR]))
+):
+    """Generate authorization feed from approved hold releases. For PBM/TPA partners."""
+
+    vendor = None
+    vendor_name = "Manual Export"
+    if vendor_id:
+        vendor = await db.feed_vendors.find_one({"id": vendor_id}, {"_id": 0})
+        if vendor:
+            vendor_name = vendor.get("name", "Unknown")
+            format = vendor.get("format", format)
+
+    # Find auth records
+    query = {"type": "auth_release"}
+    if date_from:
+        query["created_at"] = {"$gte": date_from}
+    if date_to:
+        query.setdefault("created_at", {})["$lte"] = date_to + "T23:59:59"
+
+    auth_records = await db.auth_feed_records.find(query, {"_id": 0}).sort("created_at", -1).to_list(5000)
+
+    now = datetime.now(timezone.utc)
+    gs_date = now.strftime("%Y%m%d")
+    isa_date = now.strftime("%y%m%d")
+    isa_time = now.strftime("%H%M")
+    control = str(uuid.uuid4().int)[:9].zfill(9)
+    filename = f"278_auth_{gs_date}_{isa_time}.{'edi' if format == 'hipaa_5010' else 'csv'}"
+
+    if format == "csv":
+        lines = ["AuthID,MemberID,ClaimNumber,ProviderNPI,ProviderName,CPTCodes,UnitsApproved,ServiceDateFrom,ServiceDateTo,ApprovedBy,ApprovedAt"]
+        for r in auth_records:
+            cpts = ";".join(r.get("cpt_codes", []))
+            lines.append(
+                f"{r.get('auth_id','')},{r.get('member_id','')},{r.get('claim_number','')},"
+                f"{r.get('provider_npi','')},{r.get('provider_name','')},{cpts},"
+                f"{r.get('units_approved',0)},{r.get('service_date_from','')},"
+                f"{r.get('service_date_to','')},{r.get('approved_by','')},{r.get('created_at','')}"
+            )
+        content = "\n".join(lines)
+    else:
+        segs = []
+        segs.append(f"ISA*00*          *00*          *ZZ*FLETCHFLOW     *ZZ*{vendor_name[:15]:<15s}*{isa_date}*{isa_time}*^*00501*{control}*0*P*:~")
+        segs.append(f"GS*HI*FLETCHFLOW*{vendor_name[:15]}*{gs_date}*{isa_time}*1*X*005010X217~")
+        segs.append("ST*278*0001~")
+        sc = 3
+
+        for r in auth_records:
+            segs.append(f"HL*{sc}**1~")
+            sc += 1
+            segs.append(f"TRN*1*{r.get('auth_id', '')}*FLETCHFLOW~")
+            sc += 1
+            segs.append(f"NM1*IL*1*{r.get('member_id','')}****MI*{r.get('member_id','')}~")
+            sc += 1
+            segs.append(f"NM1*82*1*{r.get('provider_name','')}****XX*{r.get('provider_npi','')}~")
+            sc += 1
+            svc_from = r.get("service_date_from", "").replace("-", "")
+            svc_to = r.get("service_date_to", "").replace("-", "")
+            if svc_from:
+                segs.append(f"DTP*472*RD8*{svc_from}-{svc_to or svc_from}~")
+                sc += 1
+            for cpt in r.get("cpt_codes", []):
+                segs.append(f"SV1*HC:{cpt}*0*UN*{r.get('units_approved', 1)}~")
+                sc += 1
+            segs.append(f"HCR*A1*{r.get('auth_id', '')}~")
+            sc += 1
+
+        sc += 1
+        segs.append(f"SE*{sc}*0001~")
+        segs.append("GE*1*1~")
+        segs.append(f"IEA*1*{control}~")
+        content = "\n".join(segs)
+
+    await _log_transmission("278_auth", filename, vendor_name, vendor_id or "", len(auth_records), "success", user["id"], {
+        "format": format, "auth_count": len(auth_records),
+    })
+
+    return {
+        "content": content,
+        "filename": filename,
+        "format": format,
+        "vendor_name": vendor_name,
+        "auth_count": len(auth_records),
+    }

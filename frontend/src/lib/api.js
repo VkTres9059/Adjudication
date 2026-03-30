@@ -145,6 +145,16 @@ export const ediAPI = {
     api.get('/edi/generate-835', { params: { date_from: dateFrom, date_to: dateTo, format } }),
   transactions: (limit = 50, txType) =>
     api.get('/edi/transactions', { params: { limit, ...(txType ? { tx_type: txType } : {}) } }),
+  transmissions: (limit = 50) =>
+    api.get('/edi/transmissions', { params: { limit } }),
+  export834: (vendorId, format = 'hipaa_5010') =>
+    api.post('/edi/export-834', null, { params: { vendor_id: vendorId || undefined, format } }),
+  exportAuthFeed: (vendorId, format = 'hipaa_5010', dateFrom, dateTo) =>
+    api.post('/edi/export-auth-feed', null, { params: {
+      vendor_id: vendorId || undefined, format,
+      ...(dateFrom ? { date_from: dateFrom } : {}),
+      ...(dateTo ? { date_to: dateTo } : {}),
+    }}),
 };
 
 export const auditAPI = {
@@ -182,6 +192,10 @@ export const settingsAPI = {
   updateGateway: (data) => api.put('/settings/adjudication-gateway', data),
   getBridge: () => api.get('/settings/bridge-payment'),
   updateBridge: (data) => api.put('/settings/bridge-payment', data),
+  getVendors: () => api.get('/settings/vendors'),
+  createVendor: (data) => api.post('/settings/vendors', data),
+  updateVendor: (id, data) => api.put(`/settings/vendors/${id}`, data),
+  deleteVendor: (id) => api.delete(`/settings/vendors/${id}`),
 };
 
 export const examinerAPI = {
