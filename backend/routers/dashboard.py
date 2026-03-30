@@ -146,3 +146,63 @@ async def get_funding_health(user: dict = Depends(get_current_user)):
             "group_count": len(fi_groups),
         },
     }
+
+
+@router.get("/claims-lifecycle")
+async def claims_lifecycle(user: dict = Depends(get_current_user)):
+    """Claims lifecycle funnel: Pending → Adjudicated → Paid with timing stats."""
+    pipe = [
+        {"$group": {
+            "_id": "$status",
+            "count": {"$sum": 1},
+            "total_billed": {"$sum": "$total_billed"},
+            "total_paid": {"$sum": "$total_paid"},
+        }},
+    ]
+    agg = await db.claims.aggregate(pipe).to_list(20)
+    by_status = {a["_id"]: a for a in agg}
+
+    pending_statuses = ["pending", "pending_review", "pending_eligibility", "pended", "pended_cob", "in_review"]
+    adjudicated_statuses = ["approved", "denied", "duplicate"]
+    paid_statuses = ["paid"]
+
+    pending_count = sum(by_status.get(s, {}).get("count", 0) for s in pending_statuses)
+    adjudicated_count = sum(by_status.get(s, {}).get("count", 0) for s in adjudicated_statuses)
+    paid_count = sum(by_status.get(s, {}).get("count", 0) for s in paid_statuses)
+    total_count = sum(a["count"] for a in agg)
+
+    # Payment-ready claims (auto-queued)
+    payment_ready = await db.claims.count_documents({"payment_ready": True, "status": "approved"})
+
+    # COB-pended claims
+    cob_pended = await db.claims.count_documents({"status": "pended_cob"})
+
+    # Data tier distribution
+    tier_pipe = [
+        {"$match": {"data_tier": {"$exists": True}}},
+        {"$group": {"_id": "$data_tier", "count": {"$sum": 1}}},
+    ]
+    tier_agg = await db.claims.aggregate(tier_pipe).to_list(5)
+    tier_dist = {str(t["_id"]): t["count"] for t in tier_agg}
+
+    # Recent adjudication timing (last 50 claims)
+    timing_pipe = [
+        {"$match": {"adjudicated_at": {"$ne": None}, "created_at": {"$ne": None}}},
+        {"$sort": {"adjudicated_at": -1}},
+        {"$limit": 50},
+        {"$project": {"created_at": 1, "adjudicated_at": 1, "_id": 0}},
+    ]
+    _ = await db.claims.aggregate(timing_pipe).to_list(50)
+
+    return {
+        "funnel": {
+            "total": total_count,
+            "pending": pending_count,
+            "adjudicated": adjudicated_count,
+            "paid": paid_count,
+        },
+        "by_status": {s: {"count": d.get("count", 0), "total_billed": round(d.get("total_billed", 0), 2), "total_paid": round(d.get("total_paid", 0), 2)} for s, d in by_status.items()},
+        "payment_ready": payment_ready,
+        "cob_pended": cob_pended,
+        "tier_distribution": tier_dist,
+    }

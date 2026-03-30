@@ -106,6 +106,7 @@ export const dashboardAPI = {
   claimsByType: () => api.get('/dashboard/claims-by-type'),
   recentActivity: (limit = 10) => api.get('/dashboard/recent-activity', { params: { limit } }),
   fundingHealth: () => api.get('/dashboard/funding-health'),
+  claimsLifecycle: () => api.get('/dashboard/claims-lifecycle'),
 };
 
 export const reportsAPI = {

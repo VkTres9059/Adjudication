@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardAPI, tieringAPI } from '../lib/api';
-import { examinerAPI } from '../lib/api';
+import { examinerAPI, claimsAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -19,6 +19,7 @@ import {
   Wallet,
   Gauge,
   Shield,
+  GitBranch,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -54,6 +55,7 @@ export default function Dashboard() {
   const [examinerPerf, setExaminerPerf] = useState([]);
   const [fundingHealth, setFundingHealth] = useState(null);
   const [riskDial, setRiskDial] = useState(null);
+  const [lifecycle, setLifecycle] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboardData = async () => {
@@ -84,6 +86,11 @@ export default function Dashboard() {
       try {
         const rdRes = await tieringAPI.riskDial();
         setRiskDial(rdRes.data);
+      } catch {}
+      // Fetch claims lifecycle
+      try {
+        const lcRes = await dashboardAPI.claimsLifecycle();
+        setLifecycle(lcRes.data);
       } catch {}
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -401,6 +408,58 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Claims Lifecycle Funnel */}
+      {lifecycle && (
+        <div className="container-card" data-testid="claims-lifecycle-widget">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#4A6FA5]/10 rounded-lg flex items-center justify-center">
+                <GitBranch className="h-5 w-5 text-[#4A6FA5]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Claims Lifecycle</h3>
+                <p className="text-[10px] text-[#8A8A85]">Pending &rarr; Adjudicated &rarr; Paid funnel</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {lifecycle.payment_ready > 0 && (
+                <Badge className="bg-[#4B6E4E] text-white border-0 text-[10px]" data-testid="payment-ready-badge">
+                  {lifecycle.payment_ready} payment ready
+                </Badge>
+              )}
+              {lifecycle.cob_pended > 0 && (
+                <Badge className="bg-[#C9862B] text-white border-0 text-[10px]" data-testid="cob-pended-badge">
+                  {lifecycle.cob_pended} COB pended
+                </Badge>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Total', value: lifecycle.funnel.total, color: 'bg-[#1A3636]', textColor: 'text-white' },
+              { label: 'Pending', value: lifecycle.funnel.pending, color: 'bg-[#C9862B]', textColor: 'text-white' },
+              { label: 'Adjudicated', value: lifecycle.funnel.adjudicated, color: 'bg-[#4A6FA5]', textColor: 'text-white' },
+              { label: 'Paid', value: lifecycle.funnel.paid, color: 'bg-[#4B6E4E]', textColor: 'text-white' },
+            ].map(item => (
+              <div key={item.label} className={`${item.color} ${item.textColor} rounded-xl p-4 text-center`}>
+                <p className="text-3xl font-semibold font-['Outfit']">{item.value}</p>
+                <p className="text-xs opacity-75">{item.label}</p>
+              </div>
+            ))}
+          </div>
+          {Object.keys(lifecycle.tier_distribution || {}).length > 0 && (
+            <div className="mt-4 flex items-center gap-3">
+              <span className="text-[10px] text-[#8A8A85]">Tier Distribution:</span>
+              {Object.entries(lifecycle.tier_distribution).map(([tier, count]) => (
+                <Badge key={tier} className={`border-0 text-[10px] ${tier === '1' ? 'bg-[#4B6E4E] text-white' : tier === '2' ? 'bg-[#C9862B] text-white' : 'bg-[#C24A3B] text-white'}`}>
+                  Tier {tier}: {count}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -42,9 +42,12 @@ const STATUS_CONFIG = {
   denied: { label: 'Denied', icon: XCircle, class: 'badge-denied' },
   duplicate: { label: 'Duplicate', icon: AlertTriangle, class: 'badge-duplicate' },
   pended: { label: 'Pended', icon: Clock, class: 'badge-pended' },
+  pended_cob: { label: 'COB Pend', icon: Clock, class: 'bg-[#5C2D91] text-white border-0' },
+  paid: { label: 'Paid', icon: CheckCircle2, class: 'bg-[#4B6E4E] text-white border-0' },
   managerial_hold: { label: 'On Hold', icon: Lock, class: 'bg-[#5C2D91] text-white border-0' },
   pending_review: { label: 'Pending Review', icon: Lock, class: 'bg-[#C24A3B] text-white border-0' },
   pending_eligibility: { label: 'Pending Elig.', icon: Clock, class: 'bg-[#C9862B] text-white border-0' },
+  voided: { label: 'Voided', icon: XCircle, class: 'bg-[#8A8A85] text-white border-0' },
 };
 
 export default function Claims() {
@@ -219,16 +222,16 @@ export default function Claims() {
           <Table>
             <TableHeader>
               <TableRow className="table-header">
-                <TableHead className="w-[140px]">Claim #</TableHead>
+                <TableHead className="w-[130px]">Claim #</TableHead>
                 <TableHead>Member</TableHead>
                 <TableHead>Provider</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Service Date</TableHead>
                 <TableHead className="text-right">Billed</TableHead>
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
+                <TableHead>Tier</TableHead>
+                <TableHead>Flags</TableHead>
+                <TableHead>Docs</TableHead>
+                <TableHead className="w-[40px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -246,17 +249,15 @@ export default function Claims() {
                       {claim.claim_number}
                     </Link>
                     {claim.duplicate_info && (
-                      <AlertTriangle className="h-3 w-3 text-[#C24A3B] inline ml-2" />
+                      <AlertTriangle className="h-3 w-3 text-[#C24A3B] inline ml-1" />
                     )}
                   </TableCell>
-                  <TableCell className="font-['JetBrains_Mono'] text-xs">
+                  <TableCell className="font-['JetBrains_Mono'] text-[10px]">
                     {claim.member_id}
                   </TableCell>
-                  <TableCell className="max-w-[200px] truncate">
+                  <TableCell className="max-w-[150px] truncate text-xs">
                     {claim.provider_name}
                   </TableCell>
-                  <TableCell className="capitalize">{claim.claim_type}</TableCell>
-                  <TableCell>{claim.service_date_from}</TableCell>
                   <TableCell className="text-right font-['JetBrains_Mono'] text-xs">
                     {formatCurrency(claim.total_billed)}
                   </TableCell>
@@ -267,20 +268,51 @@ export default function Claims() {
                     <StatusBadge status={claim.status} />
                   </TableCell>
                   <TableCell>
-                    {claim.eligibility_source && claim.eligibility_source !== 'standard_hours' ? (
-                      <Badge className={
-                        claim.eligibility_source === 'bridge_payment' ? 'bg-[#5C2D91] text-white border-0 text-[10px]' :
-                        claim.eligibility_source === 'reserve_draw' ? 'bg-[#4A6FA5] text-white border-0 text-[10px]' :
-                        claim.eligibility_source === 'insufficient' ? 'bg-[#C24A3B] text-white border-0 text-[10px]' :
-                        'bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]'
-                      } data-testid={`elig-source-${claim.id}`}>
-                        {claim.eligibility_source === 'bridge_payment' ? 'Bridge' :
-                         claim.eligibility_source === 'reserve_draw' ? 'Reserve' :
-                         claim.eligibility_source === 'insufficient' ? 'Insufficient' :
-                         claim.eligibility_source?.replace(/_/g, ' ')}
+                    {claim.data_tier ? (
+                      <Badge className={`border-0 text-[9px] ${
+                        claim.data_tier === 1 ? 'bg-[#4B6E4E] text-white' :
+                        claim.data_tier === 2 ? 'bg-[#C9862B] text-white' :
+                        'bg-[#C24A3B] text-white'
+                      }`} data-testid={`tier-${claim.id}`}>
+                        T{claim.data_tier}
                       </Badge>
                     ) : (
                       <span className="text-[10px] text-[#8A8A85]">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-0.5 flex-wrap">
+                      {claim.cob_applied && (
+                        <Badge className="bg-[#5C2D91] text-white border-0 text-[8px]" data-testid={`cob-${claim.id}`}>COB</Badge>
+                      )}
+                      {claim.idr_case_number && (
+                        <Badge className="bg-[#C24A3B] text-white border-0 text-[8px]" data-testid={`idr-${claim.id}`}>IDR</Badge>
+                      )}
+                      {claim.stop_loss_flag && (
+                        <Badge className="bg-[#C24A3B] text-white border-0 text-[8px] animate-pulse">SL</Badge>
+                      )}
+                      {claim.precert_penalty_applied && (
+                        <Badge className="bg-[#C9862B] text-white border-0 text-[8px]">PC</Badge>
+                      )}
+                      {!claim.cob_applied && !claim.idr_case_number && !claim.stop_loss_flag && (
+                        <span className="text-[10px] text-[#8A8A85]">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {(claim.status === 'approved' || claim.status === 'paid') && (
+                      <div className="flex gap-1">
+                        <a href={`${process.env.REACT_APP_BACKEND_URL}/api/claims/${claim.id}/eob.pdf`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[9px] text-[#4A6FA5] hover:underline" data-testid={`eob-${claim.id}`}>
+                          EOB
+                        </a>
+                        <a href={`${process.env.REACT_APP_BACKEND_URL}/api/claims/${claim.id}/eop.pdf`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[9px] text-[#4A6FA5] hover:underline" data-testid={`eop-${claim.id}`}>
+                          EOP
+                        </a>
+                      </div>
                     )}
                   </TableCell>
                   <TableCell>

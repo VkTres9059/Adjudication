@@ -159,6 +159,22 @@ async def process_new_claim(claim_data_dict: dict, service_lines_dicts: list, us
         claim_doc.update(adjudication_result)
         claim_doc["adjudicated_at"] = now
 
+        # ── COB Pend: If secondary payer waiting for primary EOB ──
+        if adjudication_result.get("cob_status") == "awaiting_primary_eob":
+            claim_doc["status"] = "pended_cob"
+            claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                "PENDED COB: Claim held pending primary payer EOB."
+            ]
+            await db.claims.insert_one(claim_doc)
+            await db.audit_logs.insert_one({
+                "id": str(uuid.uuid4()), "action": "claim_pended_cob",
+                "user_id": user["id"],
+                "details": {"claim_id": claim_id, "claim_number": claim_number},
+                "timestamp": now
+            })
+            result = await db.claims.find_one({"id": claim_id}, {"_id": 0, "created_by": 0})
+            return result
+
         gateway_doc = await db.settings.find_one({"key": "adjudication_gateway"}, {"_id": 0})
         gateway = gateway_doc.get("value", {}) if gateway_doc else {}
         gateway_enabled = gateway.get("enabled", True)
@@ -174,6 +190,11 @@ async def process_new_claim(claim_data_dict: dict, service_lines_dicts: list, us
                 claim_doc["tier_level"] = 1
                 claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
                     f"TIER 1 (Auto-Pilot): ${check_amount:.2f} within ${tier1_limit:.2f} threshold."
+                ]
+                # ── Auto-Queue Tier 1 to Payment ──
+                claim_doc["payment_ready"] = True
+                claim_doc["adjudication_notes"] = claim_doc.get("adjudication_notes", []) + [
+                    "AUTO-QUEUE: Tier 1 claim queued for payment processing."
                 ]
             elif check_amount <= tier2_limit:
                 claim_doc["tier_level"] = 2
