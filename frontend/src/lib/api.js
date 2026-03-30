@@ -112,6 +112,9 @@ export const reportsAPI = {
   fixedCostVsClaims: () => api.get('/reports/fixed-cost-vs-claims'),
   hourBankDeficiency: () => api.get('/reports/hour-bank-deficiency'),
   predictiveEligibility: () => api.get('/reports/predictive-eligibility'),
+  brokerDeck: () => api.get('/reports/broker-deck'),
+  carrierBordereaux: (groupId) => api.get('/reports/carrier-bordereaux', { params: groupId ? { group_id: groupId } : {} }),
+  utilizationReview: () => api.get('/reports/utilization-review'),
 };
 
 export const ediAPI = {
@@ -268,4 +271,20 @@ export const groupsAPI = {
   getReserveFund: (groupId) => api.get(`/groups/${groupId}/reserve-fund`),
   manualDeposit: (groupId, amount, description) =>
     api.post(`/groups/${groupId}/reserve-deposit`, null, { params: { amount, description } }),
+};
+
+export const tieringAPI = {
+  summary: () => api.get('/tiering/summary'),
+  riskDial: () => api.get('/tiering/risk-dial'),
+  analyzeClaim: (claimId) => api.get(`/tiering/analyze/${claimId}`),
+  batchClassify: (limit) => api.post('/tiering/batch-classify', null, { params: limit ? { limit } : {} }),
+};
+
+export const aiAgentAPI = {
+  chat: (data) => api.post('/ai-agent/chat', data),
+  sessions: (limit) => api.get('/ai-agent/sessions', { params: limit ? { limit } : {} }),
+  sessionMessages: (sessionId) => api.get(`/ai-agent/sessions/${sessionId}/messages`),
+  escalate: (data) => api.post('/ai-agent/escalate', data),
+  callLogs: (status, limit) => api.get('/ai-agent/call-logs', { params: { ...(status ? { status } : {}), ...(limit ? { limit } : {}) } }),
+  resolveCallLog: (logId, notes) => api.put(`/ai-agent/call-logs/${logId}/resolve`, null, { params: notes ? { notes } : {} }),
 };

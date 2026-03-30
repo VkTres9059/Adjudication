@@ -20,6 +20,8 @@ import Groups from "./pages/Groups";
 import ExaminerQueue from "./pages/ExaminerQueue";
 import EDIManagement from "./pages/EDIManagement";
 import CheckRunManager from "./pages/CheckRunManager";
+import DataTiering from "./pages/DataTiering";
+import AIAgent from "./pages/AIAgent";
 import Layout from "./components/Layout";
 import "./App.css";
 
@@ -93,6 +95,8 @@ function AppRoutes() {
         <Route path="groups" element={<Groups />} />
         <Route path="examiner-queue" element={<ExaminerQueue />} />
         <Route path="check-runs" element={<CheckRunManager />} />
+        <Route path="tiering" element={<DataTiering />} />
+        <Route path="ai-agent" element={<AIAgent />} />
         <Route path="reports" element={<Reports />} />
         <Route path="edi" element={<EDIManagement />} />
         <Route 

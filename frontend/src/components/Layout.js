@@ -26,6 +26,8 @@ import {
   Target,
   FileUp,
   CreditCard,
+  Phone,
+  Gauge,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -47,7 +49,9 @@ const sidebarCategories = [
       { name: 'Check Runs', href: '/check-runs', icon: CreditCard },
       { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
       { name: 'Reports', href: '/reports', icon: BarChart3 },
+      { name: 'Data Tiering', href: '/tiering', icon: Gauge },
       { name: 'EDI Management', href: '/edi', icon: FileUp },
+      { name: 'AI Agent', href: '/ai-agent', icon: Phone },
     ],
   },
   {

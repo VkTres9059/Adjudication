@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { dashboardAPI } from '../lib/api';
+import { dashboardAPI, tieringAPI } from '../lib/api';
 import { examinerAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,8 @@ import {
   Building2,
   CreditCard,
   Wallet,
+  Gauge,
+  Shield,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -51,6 +53,7 @@ export default function Dashboard() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [examinerPerf, setExaminerPerf] = useState([]);
   const [fundingHealth, setFundingHealth] = useState(null);
+  const [riskDial, setRiskDial] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDashboardData = async () => {
@@ -76,6 +79,11 @@ export default function Dashboard() {
       try {
         const fhRes = await dashboardAPI.fundingHealth();
         setFundingHealth(fhRes.data);
+      } catch {}
+      // Fetch risk dial
+      try {
+        const rdRes = await tieringAPI.riskDial();
+        setRiskDial(rdRes.data);
       } catch {}
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
@@ -392,6 +400,78 @@ export default function Dashboard() {
                 <p className="text-sm text-[#64645F]">Carrier-managed risk. No employer-level reserve tracking required.</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Risk Dial Widget */}
+      {riskDial && riskDial.summary.total_monitored > 0 && (
+        <div className="container-card" data-testid="risk-dial-widget">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#FBEAE7] rounded-lg flex items-center justify-center">
+                <Gauge className="h-5 w-5 text-[#C24A3B]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Stop-Loss Risk Dial</h3>
+                <p className="text-[10px] text-[#8A8A85]">Real-time Agg/Spec utilization across monitored groups</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {riskDial.summary.critical > 0 && (
+                <Badge className="bg-[#C24A3B] text-white border-0 text-[10px] animate-pulse" data-testid="risk-critical-badge">
+                  {riskDial.summary.critical} CRITICAL
+                </Badge>
+              )}
+              {riskDial.summary.warning > 0 && (
+                <Badge className="bg-[#C9862B] text-white border-0 text-[10px]" data-testid="risk-warning-badge">
+                  {riskDial.summary.warning} WARNING
+                </Badge>
+              )}
+              <Badge className="bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]">
+                {riskDial.summary.total_monitored} monitored
+              </Badge>
+            </div>
+          </div>
+          <div className="space-y-3" data-testid="risk-dial-groups">
+            {riskDial.groups.slice(0, 5).map((g) => {
+              const maxPct = Math.max(g.specific_utilization_pct, g.aggregate_utilization_pct);
+              const barColor = g.alert_level === 'critical' ? 'bg-[#C24A3B]' : g.alert_level === 'warning' ? 'bg-[#C9862B]' : 'bg-[#4B6E4E]';
+              const bgColor = g.alert_level === 'critical' ? 'bg-[#FBEAE7]' : g.alert_level === 'warning' ? 'bg-[#FDF3E1]' : 'bg-[#F7F7F4]';
+              return (
+                <div key={g.group_id} className={`${bgColor} rounded-xl p-4 border border-[#E2E2DF]`} data-testid={`risk-group-${g.group_id}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-[#1C1C1A]">{g.group_name}</p>
+                      <span className="text-[10px] text-[#8A8A85]">{g.plan_name}</span>
+                    </div>
+                    <Badge className={`border-0 text-[10px] text-white ${barColor}`}>
+                      {g.alert_level.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex justify-between text-[10px] text-[#64645F] mb-1">
+                        <span>Specific ({formatCurrency(g.highest_member_claims)} / {formatCurrency(g.specific_attachment_point)})</span>
+                        <span className="font-['JetBrains_Mono'] font-semibold">{g.specific_utilization_pct}%</span>
+                      </div>
+                      <div className="w-full bg-[#E2E2DF] rounded-full h-2">
+                        <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${Math.min(g.specific_utilization_pct, 100)}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-[#64645F] mb-1">
+                        <span>Aggregate ({formatCurrency(g.group_total_claims)} / {formatCurrency(g.aggregate_attachment_point)})</span>
+                        <span className="font-['JetBrains_Mono'] font-semibold">{g.aggregate_utilization_pct}%</span>
+                      </div>
+                      <div className="w-full bg-[#E2E2DF] rounded-full h-2">
+                        <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${Math.min(g.aggregate_utilization_pct, 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -60,6 +60,8 @@ export default function Reports() {
   const [fixedCostData, setFixedCostData] = useState([]);
   const [hourBankDeficiency, setHourBankDeficiency] = useState([]);
   const [predictiveData, setPredictiveData] = useState(null);
+  const [brokerDeck, setBrokerDeck] = useState(null);
+  const [utilizationReview, setUtilizationReview] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
@@ -82,6 +84,15 @@ export default function Reports() {
       setFixedCostData(fixedCostRes.data || []);
       setHourBankDeficiency(hbDefRes.data || []);
       setPredictiveData(predRes.data || null);
+      // New report packages
+      try {
+        const [bdRes, urRes] = await Promise.all([
+          reportsAPI.brokerDeck(),
+          reportsAPI.utilizationReview(),
+        ]);
+        setBrokerDeck(bdRes.data || null);
+        setUtilizationReview(urRes.data || null);
+      } catch {}
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load reports');
@@ -398,6 +409,169 @@ export default function Reports() {
           </a>
         </div>
       </div>
+
+      {/* Broker Deck Report */}
+      {brokerDeck && (
+        <div className="container-card" data-testid="broker-deck-report">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#1A3636]/10 rounded-lg flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-[#1A3636]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Broker Deck</h3>
+                <p className="text-xs text-[#8A8A85]">High-level Surplus vs. Paid Claims across all groups</p>
+              </div>
+            </div>
+            {brokerDeck.totals && (
+              <div className="flex items-center gap-4 text-xs">
+                <div className="text-center">
+                  <p className="text-[10px] text-[#8A8A85]">Total Premium</p>
+                  <p className="font-['JetBrains_Mono'] font-semibold">{formatCurrency(brokerDeck.totals.total_premium)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-[#8A8A85]">Claims Paid</p>
+                  <p className="font-['JetBrains_Mono'] font-semibold text-[#C24A3B]">{formatCurrency(brokerDeck.totals.total_claims_paid)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-[#8A8A85]">Total Surplus</p>
+                  <p className={`font-['JetBrains_Mono'] font-semibold ${brokerDeck.totals.total_surplus >= 0 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}`}>{formatCurrency(brokerDeck.totals.total_surplus)}</p>
+                </div>
+                <Badge className={`border-0 text-[10px] ${brokerDeck.totals.overall_loss_ratio < 80 ? 'bg-[#4B6E4E] text-white' : 'bg-[#C24A3B] text-white'}`}>
+                  LR: {brokerDeck.totals.overall_loss_ratio}%
+                </Badge>
+              </div>
+            )}
+          </div>
+          {brokerDeck.groups?.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow className="table-header">
+                  <TableHead>Group</TableHead>
+                  <TableHead>Funding</TableHead>
+                  <TableHead className="text-right">Premium</TableHead>
+                  <TableHead className="text-right">Admin</TableHead>
+                  <TableHead className="text-right">Paid</TableHead>
+                  <TableHead className="text-right">Surplus</TableHead>
+                  <TableHead className="text-right">Loss Ratio</TableHead>
+                  <TableHead className="text-right">PEPM</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {brokerDeck.groups.map(g => (
+                  <TableRow key={g.group_id} className="table-row" data-testid={`bd-row-${g.group_id}`}>
+                    <TableCell className="font-medium text-sm">{g.group_name}</TableCell>
+                    <TableCell><Badge className="bg-[#F0F0EA] text-[#64645F] border-0 text-[10px]">{g.funding_type}</Badge></TableCell>
+                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{formatCurrency(g.total_premium)}</TableCell>
+                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C9862B]">{formatCurrency(g.admin_costs)}</TableCell>
+                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C24A3B]">{formatCurrency(g.claims_paid)}</TableCell>
+                    <TableCell className={`text-right font-['JetBrains_Mono'] text-xs font-semibold ${g.surplus >= 0 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}`}>{formatCurrency(g.surplus)}</TableCell>
+                    <TableCell className={`text-right font-['JetBrains_Mono'] text-xs font-semibold ${g.loss_ratio < 80 ? 'text-[#4B6E4E]' : 'text-[#C24A3B]'}`}>{g.loss_ratio}%</TableCell>
+                    <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{formatCurrency(g.pepm)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="bg-[#F7F7F4] rounded-lg p-8 text-center"><p className="text-sm text-[#8A8A85]">No group data for Broker Deck</p></div>
+          )}
+        </div>
+      )}
+
+      {/* Utilization Review Report */}
+      {utilizationReview && (
+        <div className="container-card" data-testid="utilization-review-report">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 bg-[#4A6FA5]/10 rounded-lg flex items-center justify-center">
+              <Activity className="h-5 w-5 text-[#4A6FA5]" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">Utilization Review</h3>
+              <p className="text-xs text-[#8A8A85]">Top providers, costliest CPT codes, and network leakage analysis</p>
+            </div>
+          </div>
+
+          {/* Network Leakage Summary */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-[#F7F7F4] rounded-xl p-4 border border-[#E2E2DF]" data-testid="ur-total-paid">
+              <p className="text-[10px] text-[#8A8A85]">Total Paid (In-Network + OON)</p>
+              <p className="text-xl font-semibold font-['JetBrains_Mono'] text-[#1C1C1A]">{formatCurrency(utilizationReview.network_leakage?.total_paid)}</p>
+            </div>
+            <div className="bg-[#FBEAE7] rounded-xl p-4 border border-[#E8C4BE]" data-testid="ur-oon-cost">
+              <p className="text-[10px] text-[#8A8A85]">Out-of-Network Paid</p>
+              <p className="text-xl font-semibold font-['JetBrains_Mono'] text-[#C24A3B]">{formatCurrency(utilizationReview.network_leakage?.oon_paid)}</p>
+              <p className="text-[10px] text-[#C24A3B]">{utilizationReview.network_leakage?.oon_cost_percentage}% of total spend</p>
+            </div>
+            <div className="bg-[#FDF3E1] rounded-xl p-4 border border-[#F5D88E]" data-testid="ur-oon-claims">
+              <p className="text-[10px] text-[#8A8A85]">OON Claims</p>
+              <p className="text-xl font-semibold font-['Outfit'] text-[#C9862B]">{utilizationReview.network_leakage?.oon_claims || 0}</p>
+              <p className="text-[10px] text-[#C9862B]">{utilizationReview.network_leakage?.oon_percentage}% of all claims</p>
+            </div>
+          </div>
+
+          {/* Top 10 Providers */}
+          {utilizationReview.top_providers?.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-[#1C1C1A] mb-3">Top 10 Providers by Paid Amount</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow className="table-header">
+                    <TableHead>#</TableHead>
+                    <TableHead>Provider</TableHead>
+                    <TableHead>NPI</TableHead>
+                    <TableHead className="text-right">Claims</TableHead>
+                    <TableHead className="text-right">Billed</TableHead>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Savings</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {utilizationReview.top_providers.map((p, i) => (
+                    <TableRow key={p.provider_npi} className="table-row" data-testid={`ur-provider-${i}`}>
+                      <TableCell className="font-['JetBrains_Mono'] text-xs text-[#8A8A85]">{i + 1}</TableCell>
+                      <TableCell className="font-medium text-sm">{p.provider_name}</TableCell>
+                      <TableCell className="font-['JetBrains_Mono'] text-xs text-[#8A8A85]">{p.provider_npi}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{p.claim_count}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{formatCurrency(p.total_billed)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C24A3B]">{formatCurrency(p.total_paid)}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#4B6E4E]">{p.savings_pct}%</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {/* Top 10 CPT Codes */}
+          {utilizationReview.top_cpt_codes?.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-[#1C1C1A] mb-3">Top 10 Costliest CPT Codes</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow className="table-header">
+                    <TableHead>#</TableHead>
+                    <TableHead>CPT Code</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Usage</TableHead>
+                    <TableHead className="text-right">Total Paid</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {utilizationReview.top_cpt_codes.map((c, i) => (
+                    <TableRow key={c.cpt_code} className="table-row" data-testid={`ur-cpt-${i}`}>
+                      <TableCell className="font-['JetBrains_Mono'] text-xs text-[#8A8A85]">{i + 1}</TableCell>
+                      <TableCell className="font-['JetBrains_Mono'] text-xs font-medium">{c.cpt_code}</TableCell>
+                      <TableCell className="text-xs text-[#64645F] max-w-[200px] truncate">{c.description || '-'}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs">{c.usage_count}</TableCell>
+                      <TableCell className="text-right font-['JetBrains_Mono'] text-xs text-[#C24A3B] font-semibold">{formatCurrency(c.total_paid)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Claims Summary Table */}
       <div className="container-card p-0 overflow-hidden" data-testid="claims-summary-table">
