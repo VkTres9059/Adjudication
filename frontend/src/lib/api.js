@@ -127,8 +127,24 @@ export const ediAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  validate834: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/edi/validate-834', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  validate837: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/edi/validate-837', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   generate835: (dateFrom, dateTo, format = 'x12') => 
     api.get('/edi/generate-835', { params: { date_from: dateFrom, date_to: dateTo, format } }),
+  transactions: (limit = 50, txType) =>
+    api.get('/edi/transactions', { params: { limit, ...(txType ? { tx_type: txType } : {}) } }),
 };
 
 export const auditAPI = {

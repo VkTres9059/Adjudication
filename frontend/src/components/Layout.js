@@ -24,6 +24,7 @@ import {
   Activity,
   Layers,
   Target,
+  FileUp,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -44,6 +45,7 @@ const sidebarCategories = [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Examiner Queue', href: '/examiner-queue', icon: ClipboardList },
       { name: 'Reports', href: '/reports', icon: BarChart3 },
+      { name: 'EDI Management', href: '/edi', icon: FileUp },
     ],
   },
   {

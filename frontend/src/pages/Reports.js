@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { dashboardAPI, claimsAPI, ediAPI, reportsAPI } from '../lib/api';
+import { dashboardAPI, claimsAPI, reportsAPI } from '../lib/api';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -61,11 +61,6 @@ export default function Reports() {
   const [hourBankDeficiency, setHourBankDeficiency] = useState([]);
   const [predictiveData, setPredictiveData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState({
-    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    to: new Date().toISOString().split('T')[0],
-  });
-  const [generating835, setGenerating835] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -98,29 +93,6 @@ export default function Reports() {
   useEffect(() => {
     fetchData();
   }, []);
-
-  const generate835 = async () => {
-    setGenerating835(true);
-    try {
-      const response = await ediAPI.generate835(dateRange.from, dateRange.to);
-      
-      const blob = new Blob([response.data.content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `835_${dateRange.from}_${dateRange.to}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      toast.success(`Generated 835 with ${response.data.claim_count} claims`);
-    } catch (error) {
-      toast.error('Failed to generate 835');
-    } finally {
-      setGenerating835(false);
-    }
-  };
 
   const exportCSV = () => {
     const headers = ['Claim #', 'Member ID', 'Provider', 'Type', 'Service Date', 'Billed', 'Paid', 'Status'];
@@ -409,52 +381,21 @@ export default function Reports() {
         )}
       </div>
 
-      {/* EDI 835 Generation */}
-      <div className="container-card" data-testid="edi-835-section">
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="h-5 w-5 text-[#64645F]" />
-          <h3 className="text-lg font-medium text-[#1C1C1A] font-['Outfit']">
-            Generate EDI 835
-          </h3>
-        </div>
-        <p className="text-sm text-[#64645F] mb-6">
-          Generate an 835 payment file for approved claims within a date range
-        </p>
-        
-        <div className="flex flex-wrap gap-4 items-end">
-          <div className="space-y-2">
-            <Label>From Date</Label>
-            <Input
-              type="date"
-              value={dateRange.from}
-              onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-              className="input-field w-40"
-              data-testid="835-date-from"
-            />
+      {/* EDI Management — now on dedicated page */}
+      <div className="bg-white rounded-xl border border-[#E2E2DF] p-5" data-testid="edi-shortcut">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#4A6FA5]/10 rounded-lg flex items-center justify-center">
+              <FileText className="h-5 w-5 text-[#4A6FA5]" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-[#1C1C1A] font-['Outfit']">EDI Interchange</h3>
+              <p className="text-xs text-[#8A8A85]">834 enrollment, 837 claims, 835 remittance — upload, validate, and generate</p>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>To Date</Label>
-            <Input
-              type="date"
-              value={dateRange.to}
-              onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-              className="input-field w-40"
-              data-testid="835-date-to"
-            />
-          </div>
-          <Button
-            onClick={generate835}
-            disabled={generating835}
-            className="btn-primary"
-            data-testid="generate-835-btn"
-          >
-            {generating835 ? (
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4 mr-2" />
-            )}
-            Generate 835
-          </Button>
+          <a href="/edi" className="btn-primary inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm" data-testid="go-to-edi-btn">
+            Go to EDI Management
+          </a>
         </div>
       </div>
 

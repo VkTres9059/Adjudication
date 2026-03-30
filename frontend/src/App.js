@@ -18,6 +18,7 @@ import CodeDatabase from "./pages/CodeDatabase";
 import PreventiveServices from "./pages/PreventiveServices";
 import Groups from "./pages/Groups";
 import ExaminerQueue from "./pages/ExaminerQueue";
+import EDIManagement from "./pages/EDIManagement";
 import Layout from "./components/Layout";
 import "./App.css";
 
@@ -91,6 +92,7 @@ function AppRoutes() {
         <Route path="groups" element={<Groups />} />
         <Route path="examiner-queue" element={<ExaminerQueue />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="edi" element={<EDIManagement />} />
         <Route 
           path="settings" 
           element={
