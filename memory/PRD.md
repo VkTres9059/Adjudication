@@ -10,70 +10,59 @@ Build a scalable, API-first claims adjudication system supporting multiple lines
 
 ## Completed Features
 
-### Phase 1 — Core Claims Engine
+### Phase 1-3: Core Engine + Gateway + Lifecycle
 - Multi-line claims adjudication (Medical, Dental, Vision, Pharmacy)
 - Medicare fee schedule pricing (377+ CPT codes, 87 GPCI localities)
 - Real-time duplicate claim detection
-- EDI 834/837 intake, 835 output (mocked parser)
-- JWT authentication with role-based access (Admin, Examiner, Viewer)
-- Group Management with stop-loss analytics
-- Preventive Coverage module
-- Dashboard with metrics, claims-by-status, claims-by-type charts
+- JWT auth with role-based access (Admin, Examiner, Viewer)
+- Tiered Authorization Matrix, Examiner Queue with auto-assignment
+- Group Management with stop-loss, Preventive Coverage module
+- Member lifecycle: reconciliation, retro-term/clawback, age-out rules
 
-### Phase 2 — Adjudication Gateway & Examiner Workspace
-- Tiered Authorization Matrix (auto-approve, examiner review, manager approval)
-- Global Adjudication Gateway settings
-- Examiner Queue Dashboard with auto-assignment engine
-- Hard Hold / Soft Hold claim states
-- Prior Authorization tracking, COB processing
+### Phase 4-5: Backend Refactoring + Navigation
+- Modular router architecture (16 routers)
+- Collapsible categorized sidebar
 
-### Phase 3 — Eligibility & Member Lifecycle
-- Reconciliation Dashboard, Retroactive Termination / Clawback
-- Pending Eligibility Queue, Age-Out Rules
+### Phase 6: Variable Hour Bank Module — Mar 29 2026
+- Multi-Tier Banking (Current + Reserve), Predictive Eligibility Alerts
+- Automated Bridge Payments, Manual Hour Entry
+- Claims Integration Gatekeeper with eligibility source tracking
 
-### Phase 4 — Backend Refactoring
-- Migrated ~3,850 line server.py monolith to modular router architecture (16 routers)
+### Phase 7: Member 360 View — Mar 30 2026
+- Financial Accumulator Dashboard (Individual/Family Deductible, OOP Max progress bars)
+- Claims History tab with one-click inline EOB
+- Dependent & Household Management with cross-accumulation
+- Hour Bank status in header, static UI layout
 
-### Phase 5 — Navigation & UX
-- Collapsible categorized sidebar (Operations, Plan Management, Claims Center, Network & Groups)
-
-### Phase 6 — Variable Hour Bank Module (Base + Upgrade) — Mar 29 2026
-- Multi-Tier Banking: Current Month + Reserve Bank (capped at 500 hrs)
-- Predictive Eligibility Alerts: Burn rate, months remaining, at-risk flags
-- Automated Bridge Payment Logic: Cash-to-hours, instant activation
-- Manual Hour Entry, Claims Integration Gatekeeper
-- Eligibility Source Tracking badges on claims
-- Bridge Payment Settings, Predictive Eligibility Dashboard
-- Enhanced Hour Bank Deficiency Report with multi-tier columns
-
-### Phase 7 — Member 360 View — Mar 30 2026
-- **Financial Accumulator Dashboard**: Live progress bars for Individual Deductible, Family Deductible, OOP Max — update on paid claims
-- **Member Claims History**: Full claims table within member profile with one-click inline EOB
-- **Dependent & Household Management**: Subscriber hierarchy, dependents list, family deductible cross-accumulation
-- **Integrated Hour Bank Status**: Balance chip in member header showing hold status
-- **Static UI**: Header + accumulators remain stationary while tabs switch (zero layout jitter)
-- New endpoints: `/api/members/{id}/accumulators`, `/api/members/{id}/claims-history`, `/api/members/{id}/dependents`
+### Phase 8: Real X12 EDI Parser — Mar 30 2026
+- **834 Parser**: Full X12 envelope parsing (ISA/GS/ST), INS maintenance type codes (addition/cancellation/reinstatement), NM1 member names, DMG demographics, N3/N4 address, DTP effective dates, HD coverage types (health/dental/vision), REF member/group IDs
+- **837 Parser**: Hierarchical claim parsing, NM1*85 billing provider + NM1*IL subscriber, CLM total billed, HI diagnosis codes with ICD-10 decimal insertion, SV1/SV2 service lines with modifiers, REF*G1 prior auth, DTP service dates
+- **835 Generator**: Compliant X12 output with ISA/GS/ST/BPR/TRN/DTM/N1/CLP/CAS/NM1/SVC/AMT/SE/GE/IEA segments, CO-45 contractual + PR-1 deductible adjustments, service-level CAS and AMT
+- **Validate/Preview**: `/api/edi/validate-834` and `/api/edi/validate-837` — preview without committing
+- **Transaction Log**: Every EDI file processed is logged with type, status, envelope, record count, errors
+- **Pipe-delimited fallback**: Both 834 and 837 accept pipe-delimited format for testing
+- **Dedicated EDI Management page** (`/edi`): Upload & Validate tab, Generate 835 tab, Transaction Log tab
+- **Reports shortcut**: EDI Interchange link on Reports page
 
 ## Key API Endpoints
-- Members: CRUD + `/accumulators` + `/claims-history` + `/dependents` + `/audit-trail`
-- Hour Bank: `/upload-work-report` + `/{id}` + `/{id}/manual-entry` + `/{id}/bridge-payment` + `/run-monthly` + `/notifications/list`
-- Settings: `/adjudication-gateway` + `/bridge-payment`
-- Reports: `/fixed-cost-vs-claims` + `/hour-bank-deficiency` + `/predictive-eligibility`
-- Claims: CRUD + `/adjudicate` + `/batch` + `/cob` + `/hold` + `/release-hold`
+- EDI: `/validate-834`, `/upload-834`, `/validate-837`, `/upload-837`, `/generate-835`, `/transactions`
+- Members: CRUD + `/accumulators`, `/claims-history`, `/dependents`, `/audit-trail`
+- Hour Bank: `/upload-work-report`, `/{id}`, `/{id}/manual-entry`, `/{id}/bridge-payment`, `/run-monthly`
+- Settings: `/adjudication-gateway`, `/bridge-payment`
+- Reports: `/fixed-cost-vs-claims`, `/hour-bank-deficiency`, `/predictive-eligibility`
 
-## Upcoming Tasks (Prioritized Backlog)
-- **P1**: Carrier Bordereaux Reporting Module (link hour bank draws to premium push)
-- **P1**: Real X12 EDI parser (834/837/835)
+## Upcoming Tasks
+- **P1**: Carrier Bordereaux Reporting Module
 - **P1**: Azure AD MSAL real credentials
 - **P2**: Network repricing vs contracted rates
-- **P2**: External billing system API integration
+- **P2**: External billing system API
 - **P3**: Member self-service portal
 
 ## Mocked/Stubbed
-- Real X12 EDI parsing (mocked)
 - MSAL Azure AD (JWT fallback)
 
 ## Test Reports
 - Iterations 1-12: Core features, refactoring, sidebar, base hour bank
-- Iteration 13: Hour Bank Module Upgrade — 100% pass
-- Iteration 14: Member 360 View — 100% pass (14/14 backend, all frontend)
+- Iteration 13: Hour Bank Upgrade — 100% pass
+- Iteration 14: Member 360 View — 100% pass (14/14 backend)
+- Iteration 15: X12 EDI Parser — 100% pass (25/25 backend, all frontend)
